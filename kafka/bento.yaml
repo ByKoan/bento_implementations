@@ -1,0 +1,30 @@
+input:
+  kafka:
+    addresses:
+      - localhost:9092
+    topics:
+      - sensors
+    consumer_group: bento-consumer
+
+pipeline:
+  processors:
+    - mapping: |
+        root = {
+          "device_id": this.id,
+          "temperature": this.temp,
+          "humidity": this.hum,
+          "timestamp": this.time
+        }
+
+output:
+  sql_insert:
+    driver: postgres
+    dsn: postgres://postgres:postgres@localhost:5432/sensor_data?sslmode=disable
+    table: sensor_data
+    args_mapping: |
+      root = [
+        this.device_id,
+        this.temperature,
+        this.humidity,
+        this.timestamp
+      ]
