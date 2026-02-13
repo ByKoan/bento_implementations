@@ -1,0 +1,6 @@
+bentoml 
+kafka-python
+uvicorn
+fastapi
+paho-mqtt
+psycopg2-binary

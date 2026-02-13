@@ -1,0 +1,2 @@
+uvicorn main:app
+pause
