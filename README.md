@@ -1,4 +1,4 @@
-# bento_implementations
+# Implementaciones de la herramienta ***bento***
 
 - Varias implementaciones de uso de la herramienta **bento** para transformar datos en crudo de varias entradas a un formato unificado
 
