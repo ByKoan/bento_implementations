@@ -105,7 +105,7 @@ def get_sensor_no(device_name, sensor_type, context):
 
     # buscar context primero
     contexts = pb_get(
-        "sensor_contexts",
+        COLLECTION_SENSOR_CONTEXT,
         f'context="{context}"'
     )
 
@@ -116,7 +116,7 @@ def get_sensor_no(device_name, sensor_type, context):
 
     # buscar sensor_type
     types = pb_get(
-        "sensor_types",
+        COLLECTION_SENSOR_TYPE,
         f'magnitude="{sensor_type}" && sensor_context="{context_id}"'
     )
 

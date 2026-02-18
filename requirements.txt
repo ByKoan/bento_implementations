@@ -5,3 +5,4 @@ fastapi
 paho-mqtt
 psycopg2-binary
 requests
+dotenv
