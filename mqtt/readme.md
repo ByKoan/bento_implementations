@@ -1,17 +1,16 @@
 # Implementacion con MQTT
 
-- Deberemos de tener descargado el binario de ***Mosquitto***
+***Implementacion con MQTT***
 
-- Una vez instalado y configurado el binario de ***Mosquitto*** configuramos las rutas que aparecen comentadas en **main.py**
+- Para implementar con MQTT deberemos de tener el binario de ***Mosquitto*** instalado (Preferiblemente añadiendo el binario a variables de entorno del sistema)
 
-- Lanzamos el siguiente comando para comprobar que a ***Mosquitto*** le llegan los mensajes que introduciremos manualmente para hacer pruebas
+- Deberemos de tener nuestra base de datos ***Pocket Base*** con la estructura desplegada
 
-```bash
-mosquitto_sub -h localhost -t sensors/# -v
-```
+## Metodo de uso:
 
-- Lanzamos el siguiente comando (Con **main.py** corriendo y podremos comprobar que ***Mosquitto*** lo recibio y se guardo en la base de datos formateado)
-
-```bash
-mosquitto_pub -h localhost -t sensors/test -m "{\"id\":\"sensor_01\",\"temp\":23.5,\"hum\":60,\"time\":\"2026-02-13T10:17:02Z\"}"
-```
+- Configurar fichero ***.env*** con nuestros datos.
+- Correr nuestra base de datos ***Pocket Base***
+- Tener los datos minimos para comprobar con el script
+- Correr el script 
+- Lanzar desde linea de comandos el contenido en ***test_data.json***
+- Comprobar que se nos guardo en la tabla correspondiente
