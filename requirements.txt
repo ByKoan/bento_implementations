@@ -1,8 +1,3 @@
-bentoml 
-kafka-python
-uvicorn
-fastapi
+bentoml
 paho-mqtt
-psycopg2-binary
-requests
-dotenv
+fastapi
