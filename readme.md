@@ -30,5 +30,5 @@ docker compose up
 - ***For sending messages to MQTT container run this:***
 
 ```bash
-docker exec -it mqtt_broker mosquitto_pub -t sensores/temperatura -m "{"temperature_f": 86}"
+docker exec -it mqtt_broker mosquitto_pub -t sensores/temperatura -m "{\"temperature_f\": 86}"
 ```

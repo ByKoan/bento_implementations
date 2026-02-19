@@ -8,13 +8,23 @@ MQTT_HOST = os.getenv("MQTT_HOST", "mqtt")
 
 def on_connect(client, userdata, flags, reason_code, properties):
     print("✅ Conectado a MQTT:", reason_code)
-    client.subscribe("v1/avg/+/telemetry")
+    client.subscribe("#")
+    print("✅ SUSCRITO A #")
 
 def on_message(client, userdata, msg):
     topic = msg.topic
     payload = msg.payload.decode()
 
-    parts = topic.split("/")
+    print(">>> MENSAJE RECIBIDO")
+    print("TOPIC:", msg.topic)
+    print("PAYLOAD:", msg.payload.decode())
+
+    parts = msg.topic.split("/")
+
+    if len(parts) < 3:
+        print(f"⚠ Topic inválido: {msg.topic}")
+        return
+
     device_id = parts[2]
 
     data = json.loads(payload)
