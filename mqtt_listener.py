@@ -26,9 +26,9 @@ def extraer_device_id(topic: str) -> str | None:
     except (ValueError, IndexError):
         return None
 
-def on_connect(client, userdata, flags, rc):
-    print("✅ Conectado a MQTT con código:", rc, flush=True)
-    client.subscribe("#")
+def on_connect(client, userdata, flags, reason_code, properties):
+    print("✅ Conectado a MQTT con código:", reason_code, flush=True)
+    client.subscribe("v1/avg/+/telemetry")
 
 def on_message(client, userdata, msg):
     try:
@@ -69,9 +69,10 @@ def on_message(client, userdata, msg):
     except Exception as e:
         print("[ERROR]", e, flush=True)
 
-client = mqtt.Client()
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 client.on_connect = on_connect
 client.on_message = on_message
 
 client.connect(MQTT_HOST, 1883, 60)
 client.loop_forever()
+

@@ -1,0 +1,11 @@
+service: "service:svc"
+
+include:
+  - "*.py"
+  - "tests/*.py"
+
+python:
+  packages:
+    - bentoml
+    - paho-mqtt
+    - pytest

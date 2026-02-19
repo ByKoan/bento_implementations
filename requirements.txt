@@ -1,3 +1,5 @@
 bentoml
 paho-mqtt
 fastapi
+uvicorn
+pytest
