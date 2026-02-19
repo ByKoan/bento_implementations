@@ -2,12 +2,12 @@ import json
 import os
 import paho.mqtt.client as mqtt
 
-from core.utils import fahrenheit_a_celsius, build_ingestion_metadata
+from core.utils import fahrenheit_a_celsius, build_ingestion_metadata, enrich_message
 
 MQTT_HOST = os.getenv("MQTT_HOST", "mqtt")
 
 def on_connect(client, userdata, flags, reason_code, properties):
-    print("✅ Conectado a MQTT:", reason_code)
+    print("✅ Conectado a MQTT:", reason_code, flush=True)
     client.subscribe("#")
     print("✅ SUSCRITO A #")
 
@@ -15,9 +15,9 @@ def on_message(client, userdata, msg):
     topic = msg.topic
     payload = msg.payload.decode()
 
-    print(">>> MENSAJE RECIBIDO")
-    print("TOPIC:", msg.topic)
-    print("PAYLOAD:", msg.payload.decode())
+    print(">>> MENSAJE RECIBIDO\n", flush=True)
+    print("TOPIC:", msg.topic, flush=True)
+    print("PAYLOAD:", msg.payload.decode(), flush=True)
 
     parts = msg.topic.split("/")
 
@@ -30,14 +30,7 @@ def on_message(client, userdata, msg):
     data = json.loads(payload)
 
     temp_f = float(data["temp"])
-    temp_c = fahrenheit_a_celsius(temp_f)
-
-    enriched = {
-        **build_ingestion_metadata(),
-        "device_id": device_id,
-        "temp_f": temp_f,
-        "temp_c": round(temp_c, 2),
-    }
+    enriched = enrich_message(device_id, temp_f)
 
     print("[INGESTED]", enriched)
 

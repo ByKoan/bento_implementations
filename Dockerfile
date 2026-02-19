@@ -12,4 +12,9 @@ EXPOSE 3000
 
 RUN pytest
 
-CMD ["bash", "-c", "python main.py & bentoml serve api.service:svc --host 0.0.0.0 --port 3000"]
+CMD ["bentoml", "serve", "api.service:MQTTService", "--host", "0.0.0.0", "--port", "3000"]
+
+
+
+
+

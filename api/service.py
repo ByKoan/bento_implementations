@@ -1,9 +1,10 @@
 import bentoml
-from fastapi import FastAPI
+import threading
+from mqtt.listener import start
 
-svc = bentoml.Service("mqtt_service")
-app = FastAPI()
+@bentoml.service(workers=1)
+class MQTTService:
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+    def __init__(self):
+        thread = threading.Thread(target=start, daemon=True)
+        thread.start()
