@@ -1,4 +1,4 @@
-from utils import fahrenheit_a_celsius, enrich_message
+from core.utils import fahrenheit_a_celsius, enrich_message
 
 
 def test_fahrenheit_to_celsius_exact():
