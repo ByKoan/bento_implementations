@@ -2,37 +2,62 @@ import json
 import os
 import paho.mqtt.client as mqtt
 
-from core.utils import fahrenheit_a_celsius, build_ingestion_metadata, enrich_message
+from core.batch_writer import batch_writer
+from core.utils import enrich_message
 
 MQTT_HOST = os.getenv("MQTT_HOST", "mqtt")
 
+
 def on_connect(client, userdata, flags, reason_code, properties):
+    print(flush=True)
     print("✅ Conectado a MQTT:", reason_code, flush=True)
+    print(flush=True)
     client.subscribe("#")
-    print("✅ SUSCRITO A #")
+    print("✅ SUSCRITO A #", flush=True)
+    print(flush=True)
+
 
 def on_message(client, userdata, msg):
     topic = msg.topic
     payload = msg.payload.decode()
 
+    print(flush=True)
     print(">>> MENSAJE RECIBIDO\n", flush=True)
-    print("TOPIC:", msg.topic, flush=True)
-    print("PAYLOAD:", msg.payload.decode(), flush=True)
+    print("TOPIC:", topic, flush=True)
+    print("PAYLOAD:", payload, flush=True)
+    print(flush=True)
 
-    parts = msg.topic.split("/")
+    parts = topic.split("/")
 
     if len(parts) < 3:
-        print(f"⚠ Topic inválido: {msg.topic}")
+        print(flush=True)
+        print(f"Topic inválido: {topic}", flush=True)
+        print(flush=True)
         return
 
     device_id = parts[2]
 
-    data = json.loads(payload)
+    try:
+        data = json.loads(payload)
+        temp_f = float(data["temp"])
+    except Exception as e:
+        print(flush=True)
+        print(f"Error parseando payload: {e}", flush=True)
+        print(flush=True)
+        return
 
-    temp_f = float(data["temp"])
     enriched = enrich_message(device_id, temp_f)
 
-    print("[INGESTED]", enriched)
+    print("[INGESTED]", enriched, flush=True)
+
+    try:
+        sensor_id = "k8a660qdfnc3x8g"  # 👈 ID real de tu sensor en PocketBase
+        batch_writer.add(enriched, sensor_id)
+    except Exception as e:
+        print(flush=True)
+        print(f"Error enviando a batch_writer: {e}", flush=True)
+        print(flush=True)
+
 
 def start():
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
