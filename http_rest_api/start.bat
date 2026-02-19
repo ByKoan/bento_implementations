@@ -1,2 +1,0 @@
-uvicorn main:app
-pause

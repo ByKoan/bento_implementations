@@ -1,1 +1,0 @@
-mosquitto_pub -t sensors/test -m "{\"device\":\"station_01\",\"sensor_type\":\"temperature\",\"context\":\"air\",\"value\":22.7,\"timestamp\":\"2026-02-18T12:30:00Z\"}"

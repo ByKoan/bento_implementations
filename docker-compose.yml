@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: mqtt_broker
+    ports:
+      - "1883:1883"
+
+  bento:
+    build: .
+    container_name: bento_service
+    depends_on:
+      - mqtt
+    environment:
+      - MQTT_HOST=mqtt
+    ports:
+      - "3000:3000"
