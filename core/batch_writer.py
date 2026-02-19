@@ -8,10 +8,10 @@ from core.pocketbase_client import PocketBaseClient
 logger = logging.getLogger(__name__)
 
 POCKETBASE_URL = os.getenv("POCKETBASE_URL")
-COLLECTION = "readings"
+COLLECTION = os.getenv('COLLECTION')
 
-BATCH_SIZE = 5
-FLUSH_INTERVAL = 5  # segundos
+BATCH_SIZE = int(os.getenv('BATCH_SIZE'))
+FLUSH_INTERVAL = int(os.getenv('FLUSH_INTERVAL'))
 
 class BatchWriter:
 

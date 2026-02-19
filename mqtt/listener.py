@@ -5,7 +5,7 @@ import paho.mqtt.client as mqtt
 from core.batch_writer import batch_writer
 from core.utils import enrich_message
 
-MQTT_HOST = os.getenv("MQTT_HOST", "mqtt")
+MQTT_HOST = os.getenv("MQTT_HOST")
 
 
 def on_connect(client, userdata, flags, reason_code, properties):
@@ -51,7 +51,7 @@ def on_message(client, userdata, msg):
     print("[INGESTED]", enriched, flush=True)
 
     try:
-        sensor_id = "k8a660qdfnc3x8g"  # 👈 ID real de tu sensor en PocketBase
+        sensor_id = os.getenv('SENSOR_ID')  # ID real de tu sensor en PocketBase
         batch_writer.add(enriched, sensor_id)
     except Exception as e:
         print(flush=True)

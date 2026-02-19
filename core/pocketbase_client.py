@@ -1,9 +1,9 @@
 import requests
+import os
 
-PB_URL = "http://host.docker.internal:8090"
-PB_USER = "test@test.com"
-PB_PASS = "test_1234"
-
+PB_URL = os.getenv('POCKETBASE_URL')
+PB_USER = os.getenv('POCKETBASE_USER')
+PB_PASS = os.getenv('POCKETBASE_PASSWORD')
 
 class PocketBaseClient:
     def __init__(self):

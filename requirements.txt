@@ -2,3 +2,4 @@ bentoml
 paho-mqtt
 pytest
 requests
+python-dotenv
