@@ -51,8 +51,7 @@ def on_message(client, userdata, msg):
     print("[INGESTED]", enriched, flush=True)
 
     try:
-        sensor_id = os.getenv('SENSOR_ID')  # ID real de tu sensor en PocketBase
-        batch_writer.add(enriched, sensor_id)
+        batch_writer.add(enriched, device_id)
     except Exception as e:
         print(flush=True)
         print(f"Error enviando a batch_writer: {e}", flush=True)

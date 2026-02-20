@@ -39,17 +39,31 @@ class PocketBaseClient:
 
         # Si el token expiró, reautenticamos automáticamente
         if r.status_code == 401:
-            print(flush=True)
-            print("Token expirado, reautenticando...", flush=True)
-            print(flush=True)
+            print("\nToken expirado, reautenticando...\n", flush=True)
             self.authenticate()
             headers["Authorization"] = f"Bearer {self.token}"
             r = requests.post(url, json=data, headers=headers)
 
-        print(flush=True)
-        print("STATUS:", r.status_code, flush=True)
+        print("\nSTATUS:", r.status_code, flush=True)
         print("BODY:", r.text, flush=True)
-        print(flush=True)
+        print()
 
         r.raise_for_status()
-        return r.json()
+
+        return r
+
+
+    def get(self, path, params=None):
+        url = f"{PB_URL}{path}"
+
+        response = requests.get(
+            url,
+            headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json"
+            },
+            params=params,
+            timeout=10,
+        )
+
+        return response

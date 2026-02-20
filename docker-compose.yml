@@ -17,5 +17,7 @@ services:
     environment:
       - MQTT_HOST=mqtt
       - POCKETBASE_URL=http://host.docker.internal:8090
+    volumes:
+      - ./data:/app/data
     ports:
       - "3000:3000"
