@@ -3,6 +3,7 @@ import threading
 import time
 import logging
 import random
+import json
 from datetime import datetime
 
 from core.pocketbase_client import PocketBaseClient
@@ -11,6 +12,7 @@ from core.disk_queue import DiskQueue
 logger = logging.getLogger(__name__)
 
 COLLECTION = os.getenv("COLLECTION")
+MQTT_ERROR_TOPIC = os.getenv("MQTT_ERROR_TOPIC")
 
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 10))
 FLUSH_INTERVAL = int(os.getenv("FLUSH_INTERVAL", 5))
@@ -24,7 +26,8 @@ QUEUE_FILE = os.getenv("QUEUE_FILE", "/app/data/pending_readings.log")
 
 class BatchWriter:
 
-    def __init__(self):
+    def __init__(self, mqtt_client=None):
+        self.mqtt_client = mqtt_client
         self.buffer = []
         self.pb = PocketBaseClient()
         self.lock = threading.Lock()
@@ -66,7 +69,6 @@ class BatchWriter:
             ingested["ingestion_timestamp"].replace("Z", "+00:00")
         )
 
-        # Redondeo a milisegundos
         dt = dt.replace(microsecond=(dt.microsecond // 1000) * 1000)
 
         return {
@@ -116,6 +118,33 @@ class BatchWriter:
             return False
 
     # ===============================
+    # ERROR MQTT
+    # ===============================
+
+    def _send_to_error_topic(self, record, reason):
+
+        if not self.mqtt_client:
+            logger.error("MQTT client no disponible para error topic")
+            return
+
+        error_payload = {
+            "record": record,
+            "reason": str(reason),
+            "failed_at": datetime.utcnow().isoformat() + "Z"
+        }
+
+        try:
+            self.mqtt_client.publish(
+                os.getenv("MQTT_ERROR_TOPIC"),
+                json.dumps(error_payload),
+                qos=1
+            )
+            logger.error("Registro inválido enviado a error topic")
+
+        except Exception as e:
+            logger.critical("No se pudo publicar en error topic: %s", e)
+
+    # ===============================
     # CORE CHUNK SENDER
     # ===============================
 
@@ -138,16 +167,57 @@ class BatchWriter:
 
             response = self._send_with_retry(payload)
 
-            if response.status_code != 200:
-                raise Exception(f"Batch HTTP error {response.status_code}")
+            # ===============================
+            # CASO 1: Batch OK
+            # ===============================
+            if response.status_code == 200:
 
-            results = response.json()
+                results = response.json()
 
-            for idx, item in enumerate(results):
-                if item.get("status") == 200:
-                    successfully_sent.append(chunk[idx])
-                else:
-                    raise Exception(f"Batch item failed: {item}")
+                for idx, item in enumerate(results):
+
+                    if item.get("status") == 200:
+                        successfully_sent.append(chunk[idx])
+                    else:
+                        self._send_to_error_topic(chunk[idx], item)
+
+                continue
+
+            # ===============================
+            # CASO 2: Batch 400 → dividir
+            # ===============================
+            if response.status_code == 400:
+
+                logger.warning("Batch 400 detected. Trying records individually.")
+
+                for record in chunk:
+
+                    single_payload = {
+                        "requests": [{
+                            "method": "POST",
+                            "url": f"/api/collections/{COLLECTION}/records",
+                            "body": record
+                        }]
+                    }
+
+                    try:
+                        single_response = self.pb.post("/api/batch", single_payload)
+
+                        if single_response.status_code == 200:
+                            successfully_sent.append(record)
+                        else:
+                            self._send_to_error_topic(record, single_response.text)
+
+                    except Exception as e:
+                        self._send_to_error_topic(record, str(e))
+
+                continue
+
+            # ===============================
+            # CASO 3: 5xx → DB caída
+            # ===============================
+            if response.status_code >= 500:
+                raise Exception(f"Server error {response.status_code}")
 
         return successfully_sent
 
@@ -163,15 +233,19 @@ class BatchWriter:
         print(f"FLUSHING {len(batch)} RECORDS", flush=True)
 
         try:
-            self._send_in_chunks(batch)
-            logger.info("Inserted %d readings", len(batch))
+            sent = self._send_in_chunks(batch)
+
+            remaining = [r for r in batch if r not in sent]
+
+            if remaining:
+                self.disk.append(remaining)
+
+            logger.info("Inserted %d readings", len(sent))
 
         except Exception as e:
             logger.error("Batch failed. Error: %s", e)
             self.db_available = False
             self.disk.append(batch)
-
-            # 👇 MUY IMPORTANTE
             raise
 
     def _flush(self):
@@ -183,12 +257,9 @@ class BatchWriter:
 
         try:
             self._flush_batch(batch)
-
-            # SOLO limpiar si fue exitoso
             self.buffer = self.buffer[len(batch):]
 
         except Exception:
-            # No tocar buffer
             pass
 
     # ===============================
@@ -231,15 +302,11 @@ class BatchWriter:
                 if response.status_code >= 500:
                     raise Exception(f"Server error {response.status_code}")
 
-                if response.status_code == 400:
-                    if "validation_not_unique" in response.text:
-                        logger.warning("Duplicate detected. Skipping.")
-                        return response
-                    raise Exception(f"Bad request: {response.text}")
-
+                # 400 lo manejamos arriba (no retry)
                 return response
 
             except Exception as e:
+
                 attempt += 1
 
                 if attempt >= MAX_RETRIES:

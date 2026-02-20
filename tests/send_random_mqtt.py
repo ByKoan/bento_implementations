@@ -3,9 +3,9 @@ import subprocess
 import time
 import json
 
-SENSOR_ID = "k8a660qdfnc3x8g"
+DEVICE_ID = "k8a660qdfnc3x8g"
 
-TOPIC = f"factory/temperature/{SENSOR_ID}"
+TOPIC = f"devices/{DEVICE_ID}/readings"
 BROKER = "host.docker.internal"
 PORT = 1883
 

@@ -2,10 +2,16 @@ import json
 import os
 import paho.mqtt.client as mqtt
 
-from core.batch_writer import batch_writer
+from core.batch_writer import BatchWriter
 from core.utils import enrich_message
 
 MQTT_HOST = os.getenv("MQTT_HOST")
+
+# 👇 CLIENTE GLOBAL EXPORTABLE
+mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+
+# 👇 Creamos batch_writer aquí pasando el cliente
+batch_writer = BatchWriter(mqtt_client=mqtt_client)
 
 
 def on_connect(client, userdata, flags, reason_code, properties):
@@ -30,20 +36,16 @@ def on_message(client, userdata, msg):
     parts = topic.split("/")
 
     if len(parts) < 3:
-        print(flush=True)
         print(f"Topic inválido: {topic}", flush=True)
-        print(flush=True)
         return
 
-    device_id = parts[2]
+    device_id = parts[1]
 
     try:
         data = json.loads(payload)
         temp_f = float(data["temp"])
     except Exception as e:
-        print(flush=True)
         print(f"Error parseando payload: {e}", flush=True)
-        print(flush=True)
         return
 
     enriched = enrich_message(device_id, temp_f)
@@ -53,15 +55,12 @@ def on_message(client, userdata, msg):
     try:
         batch_writer.add(enriched, device_id)
     except Exception as e:
-        print(flush=True)
         print(f"Error enviando a batch_writer: {e}", flush=True)
-        print(flush=True)
 
 
 def start():
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    client.on_connect = on_connect
-    client.on_message = on_message
+    mqtt_client.on_connect = on_connect
+    mqtt_client.on_message = on_message
 
-    client.connect(MQTT_HOST, 1883, 60)
-    client.loop_forever()
+    mqtt_client.connect(MQTT_HOST, 1883, 60)
+    mqtt_client.loop_forever()
