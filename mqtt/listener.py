@@ -9,8 +9,6 @@ MQTT_HOST = os.getenv("MQTT_HOST")
 
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
-batch_writer = BatchWriter(mqtt_client=mqtt_client)
-
 def start (batch_writer):
 
     def on_connect(client, userdata, flags, reason_code, properties):
