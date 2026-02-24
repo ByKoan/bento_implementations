@@ -29,11 +29,10 @@ class BatchWriter:
     def __init__(self, mqtt_client=None):
         self.mqtt_client = mqtt_client
         self.buffer = []
-        self.pb = PocketBaseClient()
         self.lock = threading.Lock()
         self.running = True
-        self.db_available = False
 
+        self.pb = PocketBaseClient()
         self.disk = DiskQueue(QUEUE_FILE)
 
         count = self.disk.count()
@@ -44,20 +43,14 @@ class BatchWriter:
         self.thread.start()
 
     # ===============================
-    # PUBLIC METHOD
+    # PUBLIC
     # ===============================
 
     def add(self, ingested: dict, device_id: str):
-
         record = self._build_record(ingested, device_id)
 
         with self.lock:
             self.buffer.append(record)
-
-            if len(self.buffer) >= BATCH_SIZE:
-                batch = self.buffer[:BATCH_SIZE]
-                self.buffer = self.buffer[BATCH_SIZE:]
-                self._flush_batch(batch)
 
     # ===============================
     # RECORD BUILDER
@@ -78,33 +71,47 @@ class BatchWriter:
         }
 
     # ===============================
-    # BACKGROUND LOOP
+    # MAIN LOOP (ÚNICO FLUSH)
     # ===============================
 
     def _run(self):
 
-        last_state = None
-
         while self.running:
+
             time.sleep(FLUSH_INTERVAL)
 
-            current_state = self._is_db_alive()
+            db_alive = self._is_db_alive()
 
-            if current_state != last_state:
+            # ===============================
+            # DB CAÍDA → mover buffer a disco
+            # ===============================
+            if not db_alive:
 
-                if current_state:
-                    print("DB volvió. Flushing disco...", flush=True)
-                    self._flush_disk()
-                else:
-                    print("DB cayó.", flush=True)
-
-                last_state = current_state
-                self.db_available = current_state
-
-            if current_state:
                 with self.lock:
                     if self.buffer:
-                        self._flush()
+                        print(f"DB caída. Guardando {len(self.buffer)} en disco...", flush=True)
+                        self.disk.append(self.buffer)
+                        self.buffer.clear()
+
+                continue
+
+            # ===============================
+            # DB OK → primero disco
+            # ===============================
+            self._flush_disk()
+
+            # ===============================
+            # Luego memoria (aunque sea < BATCH_SIZE)
+            # ===============================
+            while True:
+                with self.lock:
+                    if not self.buffer:
+                        break
+
+                    batch = self.buffer[:BATCH_SIZE]
+                    self.buffer = self.buffer[BATCH_SIZE:]
+
+                self._flush_batch(batch)
 
     # ===============================
     # HEALTH CHECK
@@ -124,10 +131,10 @@ class BatchWriter:
     def _send_to_error_topic(self, record, reason):
 
         if not self.mqtt_client:
-            logger.error("MQTT client no disponible para error topic")
+            logger.error("MQTT client no disponible")
             return
 
-        error_payload = {
+        payload = {
             "record": record,
             "reason": str(reason),
             "failed_at": datetime.utcnow().isoformat() + "Z"
@@ -135,17 +142,16 @@ class BatchWriter:
 
         try:
             self.mqtt_client.publish(
-                os.getenv("MQTT_ERROR_TOPIC"),
-                json.dumps(error_payload),
+                MQTT_ERROR_TOPIC,
+                json.dumps(payload),
                 qos=1
             )
-            logger.error("Registro inválido enviado a error topic")
-
+            logger.error("Registro enviado a error topic")
         except Exception as e:
             logger.critical("No se pudo publicar en error topic: %s", e)
 
     # ===============================
-    # CORE CHUNK SENDER
+    # CHUNK SENDER
     # ===============================
 
     def _send_in_chunks(self, records):
@@ -153,9 +159,8 @@ class BatchWriter:
         successfully_sent = []
 
         for i in range(0, len(records), BATCH_SIZE):
-            chunk = records[i:i + BATCH_SIZE]
 
-            print(f"Sending chunk of {len(chunk)} records", flush=True)
+            chunk = records[i:i + BATCH_SIZE]
 
             requests = [{
                 "method": "POST",
@@ -167,15 +172,12 @@ class BatchWriter:
 
             response = self._send_with_retry(payload)
 
-            # ===============================
-            # CASO 1: Batch OK
-            # ===============================
+            # ✅ Batch OK
             if response.status_code == 200:
 
                 results = response.json()
 
                 for idx, item in enumerate(results):
-
                     if item.get("status") == 200:
                         successfully_sent.append(chunk[idx])
                     else:
@@ -183,12 +185,10 @@ class BatchWriter:
 
                 continue
 
-            # ===============================
-            # CASO 2: Batch 400 → dividir
-            # ===============================
+            # ⚠️ Batch 400 → dividir
             if response.status_code == 400:
 
-                logger.warning("Batch 400 detected. Trying records individually.")
+                logger.warning("Batch 400 detected. Splitting...")
 
                 for record in chunk:
 
@@ -200,29 +200,23 @@ class BatchWriter:
                         }]
                     }
 
-                    try:
-                        single_response = self.pb.post("/api/batch", single_payload)
+                    r = self.pb.post("/api/batch", single_payload)
 
-                        if single_response.status_code == 200:
-                            successfully_sent.append(record)
-                        else:
-                            self._send_to_error_topic(record, single_response.text)
-
-                    except Exception as e:
-                        self._send_to_error_topic(record, str(e))
+                    if r.status_code == 200:
+                        successfully_sent.append(record)
+                    else:
+                        self._send_to_error_topic(record, r.text)
 
                 continue
 
-            # ===============================
-            # CASO 3: 5xx → DB caída
-            # ===============================
+            # ❌ 5xx
             if response.status_code >= 500:
                 raise Exception(f"Server error {response.status_code}")
 
         return successfully_sent
 
     # ===============================
-    # BATCH INSERT
+    # FLUSH BATCH
     # ===============================
 
     def _flush_batch(self, batch):
@@ -243,24 +237,8 @@ class BatchWriter:
             logger.info("Inserted %d readings", len(sent))
 
         except Exception as e:
-            logger.error("Batch failed. Error: %s", e)
-            self.db_available = False
+            logger.error("Batch failed: %s", e)
             self.disk.append(batch)
-            raise
-
-    def _flush(self):
-
-        if not self.buffer:
-            return
-
-        batch = self.buffer[:]
-
-        try:
-            self._flush_batch(batch)
-            self.buffer = self.buffer[len(batch):]
-
-        except Exception:
-            pass
 
     # ===============================
     # DISK FLUSH
@@ -273,16 +251,16 @@ class BatchWriter:
         if not records:
             return
 
-        print(f"Reintentando {len(records)} registros pendientes...", flush=True)
+        print(f"Reintentando {len(records)} pendientes...", flush=True)
 
         try:
-            sent_records = self._send_in_chunks(records)
+            sent = self._send_in_chunks(records)
 
-            remaining = [r for r in records if r not in sent_records]
+            remaining = [r for r in records if r not in sent]
 
             self.disk.rewrite(remaining)
 
-            print(f"Pendientes restantes en disco: {len(remaining)}", flush=True)
+            print(f"Pendientes restantes: {len(remaining)}", flush=True)
 
         except Exception as e:
             logger.error("Falló flush_disk: %s", e)
@@ -302,7 +280,6 @@ class BatchWriter:
                 if response.status_code >= 500:
                     raise Exception(f"Server error {response.status_code}")
 
-                # 400 lo manejamos arriba (no retry)
                 return response
 
             except Exception as e:
@@ -314,17 +291,7 @@ class BatchWriter:
 
                 delay = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
                 jitter = random.uniform(0, 0.5)
-                sleep_time = delay + jitter
-
-                logger.warning(
-                    "Retry %d/%d in %.2f seconds due to: %s",
-                    attempt,
-                    MAX_RETRIES,
-                    sleep_time,
-                    e,
-                )
-
-                time.sleep(sleep_time)
+                time.sleep(delay + jitter)
 
 
 batch_writer = BatchWriter()

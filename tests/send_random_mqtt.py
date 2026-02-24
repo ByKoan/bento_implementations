@@ -3,7 +3,7 @@ import subprocess
 import time
 import json
 
-DEVICE_ID = "k8a660qdfnc3x8g"
+DEVICE_ID = "kzbh4my108zvefi"
 
 TOPIC = f"devices/{DEVICE_ID}/readings"
 BROKER = "host.docker.internal"
