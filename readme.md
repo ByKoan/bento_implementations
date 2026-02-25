@@ -1,5 +1,9 @@
 # Bento integration in IoT Template
 
+## About
+
+- ***A project that implements bento with data that comes from an external output `(MQTT)` for trasnform it to simplified data and uploaded to a IoT Template with a `PocketBase` database***
+
 ## Project Structure
 
 `-> \api`
@@ -30,3 +34,26 @@
 docker compose build --no-cache
 docker compose up
 ```
+
+## Principal classes:
+
+`-> \api\service.py` 
+
+- ***Initialize the program: Service class that initializes the MQTT listener and the batch writer. The MQTT listener will receive messages from the devices, enrich them with additional information (like the device_id and a timestamp) and send them to the batch writer, wich will handle the logic of sending the record to PocketBase, handling retries in case of failures, and sending failed record to an error topic in MQTT if they fail after the maximum number of retries.***
+
+`-> \core\batch_writer.py`
+
+- ***The BatchWriter class is responsible for managing the buffering and sending of records to PocketBase. It maintains an in-memory buffer of records and a disk-based queue for persistence. It has a background thread that periodically flushes the buffer to PocketBase, and another thread that retries sending records from the disk queue in case of failures. It also handles retries with exponential backoff and sends failed records to an error MQTT topic if they exceed the maximum number of retries.***
+
+`-> \core\pocketbase_client.py`
+
+- ***A simple client to interact with the PocketBase API, handling authentication and requests. It includes a method to authenticate and obtain a token, a method to make POST requests that automatically re-authenticates if the token is expired, and a method to make GET requests.***
+
+`-> \core\disk_queue.py`
+
+- ***A simple disk-based queue implementation that allows us to store records in a file on disk. It provides methods to append records, load all records, count the number of records, rewrite the file with a new set of records, and clear the file. This is useful for our batch writer to have a persistent storage of the messages that need to be sent to PocketBase, allowing us to handle retries and ensure no data is lost in case of failures.***
+
+`-> \mqtt\listener.py`
+
+- ***MQTT Listener module that connects to the MQTT broker, subscribes to the topic and listens for incoming messages from the devices.
+When a message is received, it is parsed, enriched and sent to the batch writer for further processing and storage in the database. If there is an error in the payload or topic, the original message is sent to the errors topic with a reason for the failure.***

@@ -7,6 +7,12 @@ logger = logging.getLogger(__name__)
 
 class DiskQueue:
 
+    '''        
+        A simple disk-based queue implementation that allows us to store records in a file on disk. 
+        It provides methods to append records, load all records, count the number of records, rewrite the file with a new set of records, and clear the file. 
+        This is useful for our batch writer to have a persistent storage of the messages that need to be sent to PocketBase, allowing us to handle retries and ensure no data is lost in case of failures.
+    '''
+
     def __init__(self, file_path: str):
         self.file_path = file_path
         os.makedirs(os.path.dirname(self.file_path), exist_ok=True)

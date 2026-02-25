@@ -2,12 +2,16 @@ from core.utils import fahrenheit_a_celsius, enrich_message
 
 
 def test_fahrenheit_to_celsius_exact():
+
+    '''Test exact conversions from Fahrenheit to Celsius.'''
     assert fahrenheit_a_celsius(32) == 0
     assert fahrenheit_a_celsius(77) == 25
     assert fahrenheit_a_celsius(212) == 100
 
 
 def test_mapping_does_not_lose_information():
+    
+    '''Test that the enrich_message function does not lose information.'''
     msg = enrich_message("AGV_05", 77)
 
     assert msg["device_id"] == "AGV_05"

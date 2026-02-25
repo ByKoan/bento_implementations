@@ -275,7 +275,7 @@ func (agv *AGV) SendReading() {
 // MAIN
 // ----------------------------
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	agvs, err := initializeBaseData()
 	if err != nil {
@@ -292,12 +292,9 @@ func main() {
 		go func(a *AGV) {
 			defer wg.Done()
 			ticker := time.NewTicker(UpdatePeriod)
-			for {
-				select {
-				case <-ticker.C:
-					a.Update()
-					a.SendReading()
-				}
+			for range ticker.C {
+				a.Update()
+				a.SendReading()
 			}
 		}(agv)
 	}
