@@ -21,9 +21,10 @@ const (
 	MinBattery           = 0.0
 	BatteryDrainPerStep  = 0.5
 	StepsPerPalletUpdate = 10
+	TicksPerPalletMove   = 10 // número de ticks que el AGV se mantiene en movimiento con pallet
 
 	PocketBaseURL = "http://127.0.0.1:8090/api/collections"
-	AdminToken    = ""
+	AdminToken    = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb2xsZWN0aW9uSWQiOiJwYmNfMzE0MjYzNTgyMyIsImV4cCI6MTc3MjExMjI5OCwiaWQiOiJvc3BnZzR2MG5ncDJjamEiLCJyZWZyZXNoYWJsZSI6dHJ1ZSwidHlwZSI6ImF1dGgifQ.CEWx_LOBYyHSCii48qlHPeA1JGy30VzvcYVD5tRoyiU"
 )
 
 // ----------------------------
@@ -52,6 +53,8 @@ type AGV struct {
 	TargetY              float64
 	stepsSinceLastPallet int
 	batteryOffset        float64
+	lastHasPallet        int
+	ticksWithPallet      int // cuenta ticks en movimiento con pallet
 }
 
 // ----------------------------
@@ -79,6 +82,16 @@ func createRecord(collection string, payload map[string]interface{}) (string, er
 }
 
 // ----------------------------
+// HELPER: CREATE GEOPOINT
+// ----------------------------
+func createLocationGeo(name string, lat, lng float64) (string, error) {
+	return createRecord("locations", map[string]interface{}{
+		"name":  name,
+		"point": map[string]interface{}{"lat": lat, "lng": lng},
+	})
+}
+
+// ----------------------------
 // DATA INITIALIZATION
 // ----------------------------
 func initializeBaseData() ([]*AGV, map[string][2]float64, []string, error) {
@@ -98,26 +111,31 @@ func initializeBaseData() ([]*AGV, map[string][2]float64, []string, error) {
 	})
 
 	locations := make(map[string][2]float64)
-	locEntradaID, _ := createRecord("locations", map[string]interface{}{
-		"name": "Entrada Planta",
-		"point": map[string]interface{}{"x": 10.0, "y": 10.0},
-	})
-	locCargaID, _ := createRecord("locations", map[string]interface{}{
-		"name": "Carga Planta",
-		"point": map[string]interface{}{"x": 50.0, "y": 40.0},
-	})
-	locSalidaID, _ := createRecord("locations", map[string]interface{}{
-		"name": "Salida Planta",
-		"point": map[string]interface{}{"x": 90.0, "y": 20.0},
-	})
-	locations[locEntradaID] = [2]float64{10.0, 10.0}
-	locations[locCargaID] = [2]float64{50.0, 40.0}
-	locations[locSalidaID] = [2]float64{90.0, 20.0}
-	locIDs := []string{locEntradaID, locCargaID, locSalidaID}
+	locIDs := make([]string, 0)
+
+	// Crear locations correctamente
+	locData := []struct {
+		Name string
+		Lat  float64
+		Lng  float64
+	}{
+		{"Entrada Planta", 10.0, 10.0},
+		{"Carga Planta", 50.0, 40.0},
+		{"Salida Planta", 90.0, 20.0},
+	}
+
+	for _, loc := range locData {
+		locID, err := createLocationGeo(loc.Name, loc.Lat, loc.Lng)
+		if err != nil {
+			fmt.Println("Error creando location:", err)
+			continue
+		}
+		locations[locID] = [2]float64{loc.Lat, loc.Lng}
+		locIDs = append(locIDs, locID)
+	}
 
 	ctxDATA, _ := createRecord("sensor_contexts", map[string]interface{}{"context": "DATA"})
 	batteryType, _ := createRecord("sensor_types", map[string]interface{}{"sensor_context": ctxDATA, "magnitude": "battery", "unit": "%"})
-	// Actualizamos has_pallet para enviar 0/1
 	hasPalletType, _ := createRecord("sensor_types", map[string]interface{}{"sensor_context": ctxDATA, "magnitude": "has_pallet", "unit": "0/1"})
 	stateType, _ := createRecord("sensor_types", map[string]interface{}{"sensor_context": ctxDATA, "magnitude": "mission_state", "unit": "1/2/3/4"})
 
@@ -134,28 +152,32 @@ func initializeBaseData() ([]*AGV, map[string][2]float64, []string, error) {
 		hasPalletSensorID, _ := createRecord("sensors", map[string]interface{}{"device": devID, "sensor_type": hasPalletType})
 		stateSensorID, _ := createRecord("sensors", map[string]interface{}{"device": devID, "sensor_type": stateType})
 
+		// Vincular device a la location inicial
 		_, _ = createRecord("devices_locations", map[string]interface{}{
-			"location": locEntradaID,
 			"device":   devID,
+			"location": locIDs[0], // Entrada Planta
 			"placed_at": time.Now().Format(time.RFC3339),
 		})
 
 		agvs[i] = &AGV{
 			ID:                   devName,
 			DeviceID:             devID,
-			X:                    locations[locEntradaID][0],
-			Y:                    locations[locEntradaID][1],
+			X:                    locations[locIDs[0]][0],
+			Y:                    locations[locIDs[0]][1],
 			Battery:              MaxBattery,
 			Mission:              Idle,
 			SensorID:             sensorID,
 			HasPalletSensorID:    hasPalletSensorID,
 			StateSensorID:        stateSensorID,
-			TargetX:              locations[locCargaID][0],
-			TargetY:              locations[locCargaID][1],
+			TargetX:              locations[locIDs[1]][0],
+			TargetY:              locations[locIDs[1]][1],
 			stepsSinceLastPallet: rand.Intn(StepsPerPalletUpdate),
 			batteryOffset:        rand.Float64() * BatteryDrainPerStep,
+			lastHasPallet:        0,
+			ticksWithPallet:      0,
 		}
 	}
+
 	return agvs, locations, locIDs, nil
 }
 
@@ -163,15 +185,29 @@ func initializeBaseData() ([]*AGV, map[string][2]float64, []string, error) {
 // SIMULATION
 // ----------------------------
 func (agv *AGV) Update(locations map[string][2]float64, locIDs []string) {
-	// CHARGING si batería < 90
+	// Primero batería < 90 => Charging
 	if agv.Battery < 90 {
 		agv.Mission = Charging
 	}
 
-	// MOVING si estaba Idle
+	// Movimiento forzado por pallet
+	if agv.lastHasPallet == 1 && agv.Mission != Charging {
+		agv.Mission = Moving
+		agv.TargetX = locations[locIDs[1]][0] // Carga Planta
+		agv.TargetY = locations[locIDs[1]][1]
+		agv.ticksWithPallet++
+		if agv.ticksWithPallet >= TicksPerPalletMove {
+			// Fin del movimiento con pallet, reset
+			agv.lastHasPallet = 0
+			agv.ticksWithPallet = 0
+			agv.Mission = Idle
+		}
+	}
+
+	// Movimiento random si Idle
 	if agv.Mission == Idle && rand.Float64() < 0.2 {
 		agv.Mission = Moving
-		agv.TargetX = locations[locIDs[1]][0]
+		agv.TargetX = locations[locIDs[1]][0] // Carga Planta
 		agv.TargetY = locations[locIDs[1]][1]
 	}
 
@@ -187,7 +223,9 @@ func (agv *AGV) Update(locations map[string][2]float64, locIDs []string) {
 		} else {
 			agv.X = agv.TargetX
 			agv.Y = agv.TargetY
-			agv.Mission = Idle
+			if agv.lastHasPallet == 0 { // Si no lleva pallet, vuelve a Idle
+				agv.Mission = Idle
+			}
 		}
 	}
 
@@ -225,6 +263,8 @@ func (agv *AGV) SendReading() {
 		hasPallet = 1
 		agv.stepsSinceLastPallet = 0
 	}
+	agv.lastHasPallet = hasPallet
+
 	_, _ = createRecord("readings", map[string]interface{}{
 		"sensor": agv.HasPalletSensorID,
 		"time":   time.Now().Format(time.RFC3339),
