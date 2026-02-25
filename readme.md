@@ -37,6 +37,16 @@ docker compose up
 
 ## Example of use:
 
+- ***To use this project first run the Docker instalation, you will see the first test passed. now you need to run the Pocketbase db. Run the `send_random_mqtt.py` to see how readings records are created.***
+```bash
+go run main.go serve
+python send_random_mqtt.py
+```
+- ***To make a simulation run `obtener_token.py` to obtain the token of your _superuser. Paste it in the config variable of Script.go at the top of the file and run the script with:***
+```bash
+go run Script.go
+``` 
+
 ## Principal classes:
 
 `-> \api\service.py` 
