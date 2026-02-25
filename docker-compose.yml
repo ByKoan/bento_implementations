@@ -1,23 +1,63 @@
-version: "3.9"
-
 services:
+
   mqtt:
     image: eclipse-mosquitto:2
     container_name: mqtt_broker
+    restart: unless-stopped
+
     ports:
       - "1883:1883"
 
+    networks:
+      - backend
+
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-t", "$$SYS/#", "-C", "1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+
+
   bento:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: bento_service
+    restart: unless-stopped
+
     env_file:
       - .env
-    depends_on:
-      - mqtt
+
     environment:
-      - MQTT_HOST=mqtt
-      - POCKETBASE_URL=http://host.docker.internal:8090
+      MQTT_HOST: mqtt
+      POCKETBASE_URL: http://host.docker.internal:8090
+
+    depends_on:
+      mqtt:
+        condition: service_healthy
+
     volumes:
-      - ./data:/app/data
+      - ./data:/app/data:rw
+
     ports:
       - "3000:3000"
+
+    networks:
+      - backend
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+
+
+networks:
+  backend:
+    driver: bridge
