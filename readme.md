@@ -35,6 +35,8 @@ docker compose build --no-cache
 docker compose up
 ```
 
+## Example of use:
+
 ## Principal classes:
 
 `-> \api\service.py` 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand"
 	"net/http"
 	"sync"
@@ -14,20 +15,15 @@ import (
 // CONFIG
 // ----------------------------
 const (
-	NumAGVs      = 5
-	UpdatePeriod = 1 * time.Second
-
-	MinX = 0.0
-	MaxX = 100.0
-	MinY = 0.0
-	MaxY = 50.0
-
-	MaxBattery          = 100.0
-	MinBattery          = 0.0
-	BatteryDrainPerStep = 0.5
+	NumAGVs              = 5
+	UpdatePeriod         = 1 * time.Second
+	MaxBattery           = 100.0
+	MinBattery           = 0.0
+	BatteryDrainPerStep  = 0.5
+	StepsPerPalletUpdate = 10
 
 	PocketBaseURL = "http://127.0.0.1:8090/api/collections"
-	AdminToken    = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb2xsZWN0aW9uSWQiOiJwYmNfMzE0MjYzNTgyMyIsImV4cCI6MTc3MjAyNzMzNSwiaWQiOiJvc3BnZzR2MG5ncDJjamEiLCJyZWZyZXNoYWJsZSI6dHJ1ZSwidHlwZSI6ImF1dGgifQ.v0cyMnEu0_tks4eRr1AmV7p7Pyb0kCmDJdQxyAFPgII" // <- Pon tu token de _superusers
+	AdminToken    = ""
 )
 
 // ----------------------------
@@ -43,36 +39,38 @@ const (
 )
 
 type AGV struct {
-	ID       string
-	DeviceID string
-	X        float64
-	Y        float64
-	Battery  float64
-	Mission  MissionState
-	SensorID string
+	ID                   string
+	DeviceID             string
+	X                    float64
+	Y                    float64
+	Battery              float64
+	Mission              MissionState
+	SensorID             string
+	StateSensorID        string
+	HasPalletSensorID    string
+	TargetX              float64
+	TargetY              float64
+	stepsSinceLastPallet int
+	batteryOffset        float64
 }
 
 // ----------------------------
-// FUNCIONES GENERALES
+// GENERAL FUNCTIONS
 // ----------------------------
 func createRecord(collection string, payload map[string]interface{}) (string, error) {
 	url := fmt.Sprintf("%s/%s/records", PocketBaseURL, collection)
 	data, _ := json.Marshal(payload)
-
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(data))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+AdminToken)
-
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-
 	var result map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&result)
-
 	idStr, ok := result["id"].(string)
 	if !ok {
 		return "", fmt.Errorf("no id returned for %s, body: %v", collection, result)
@@ -81,177 +79,126 @@ func createRecord(collection string, payload map[string]interface{}) (string, er
 }
 
 // ----------------------------
-// INICIALIZACIÓN DE DATOS
+// DATA INITIALIZATION
 // ----------------------------
-func initializeBaseData() ([]*AGV, error) {
-	// 1️⃣ Crear usuarios
-	fmt.Println("Creando usuarios...")
+func initializeBaseData() ([]*AGV, map[string][2]float64, []string, error) {
 	adminID, _ := createRecord("users", map[string]interface{}{
-		"email":            fmt.Sprintf("admin_%d@example.com", time.Now().UnixNano()),
-		"password":         "admin123",
-		"passwordConfirm":  "admin123",
-		"emailVisibility":  true,
-		"name":             "Admin User",
+		"email":           fmt.Sprintf("admin_%d@example.com", time.Now().UnixNano()),
+		"password":        "admin123",
+		"passwordConfirm": "admin123",
+		"emailVisibility": true,
+		"name":            "Admin User",
 	})
 	operatorID, _ := createRecord("users", map[string]interface{}{
-		"email":            fmt.Sprintf("operator_%d@example.com", time.Now().UnixNano()),
-		"password":         "operator123",
-		"passwordConfirm":  "operator123",
-		"emailVisibility":  true,
-		"name":             "Operator User",
+		"email":           fmt.Sprintf("operator_%d@example.com", time.Now().UnixNano()),
+		"password":        "operator123",
+		"passwordConfirm": "operator123",
+		"emailVisibility": true,
+		"name":            "Operator User",
 	})
 
-	// 2️⃣ Crear ubicaciones con coordenadas
-	fmt.Println("Creando ubicaciones...")
-	locEntrada, _ := createRecord("locations", map[string]interface{}{
+	locations := make(map[string][2]float64)
+	locEntradaID, _ := createRecord("locations", map[string]interface{}{
 		"name": "Entrada Planta",
-		"point": map[string]interface{}{
-			"x": 0.0,
-			"y": 0.0,
-		},
+		"point": map[string]interface{}{"x": 10.0, "y": 10.0},
 	})
+	locCargaID, _ := createRecord("locations", map[string]interface{}{
+		"name": "Carga Planta",
+		"point": map[string]interface{}{"x": 50.0, "y": 40.0},
+	})
+	locSalidaID, _ := createRecord("locations", map[string]interface{}{
+		"name": "Salida Planta",
+		"point": map[string]interface{}{"x": 90.0, "y": 20.0},
+	})
+	locations[locEntradaID] = [2]float64{10.0, 10.0}
+	locations[locCargaID] = [2]float64{50.0, 40.0}
+	locations[locSalidaID] = [2]float64{90.0, 20.0}
+	locIDs := []string{locEntradaID, locCargaID, locSalidaID}
 
-	// 3️⃣ Crear contextos de sensor
-	fmt.Println("Creando contextos de sensor...")
-	ctxAGV, _ := createRecord("sensor_contexts", map[string]interface{}{"context": "AGV"})
+	ctxDATA, _ := createRecord("sensor_contexts", map[string]interface{}{"context": "DATA"})
+	batteryType, _ := createRecord("sensor_types", map[string]interface{}{"sensor_context": ctxDATA, "magnitude": "battery", "unit": "%"})
+	// Actualizamos has_pallet para enviar 0/1
+	hasPalletType, _ := createRecord("sensor_types", map[string]interface{}{"sensor_context": ctxDATA, "magnitude": "has_pallet", "unit": "0/1"})
+	stateType, _ := createRecord("sensor_types", map[string]interface{}{"sensor_context": ctxDATA, "magnitude": "mission_state", "unit": "1/2/3/4"})
 
-	// 4️⃣ Crear tipos de sensor
-	fmt.Println("Creando tipos de sensor...")
-	batteryType, _ := createRecord("sensor_types", map[string]interface{}{
-		"sensor_context": ctxAGV,
-		"magnitude":         "battery",
-		"unit":              "%",
-	})
-	tempType, _ := createRecord("sensor_types", map[string]interface{}{
-		"sensor_context": ctxAGV,
-		"magnitude":         "temperature",
-		"unit":              "°C",
-	})
-	
-	has_palletType, _ := createRecord("sensor_types", map[string]interface{}{
-		"sensor_context": ctxAGV,
-		"magnitude":         "has_pallet",
-		"unit":              "true/false",
-	})
-
-	// 5️⃣ Crear devices, sensores y ubicación inicial
-	fmt.Println("Creando devices, sensores y ubicación inicial...")
 	agvs := make([]*AGV, NumAGVs)
 	for i := 0; i < NumAGVs; i++ {
 		userID := operatorID
 		if i%2 == 0 {
 			userID = adminID
 		}
-
 		devName := fmt.Sprintf("AGV-%d-%d", i+1, time.Now().UnixNano())
-		devID, err := createRecord("devices", map[string]interface{}{
-			"user": userID,
-			"name": devName,
-		})
-		if err != nil {
-			fmt.Println("Error creando device:", err)
-			continue
-		}
+		devID, _ := createRecord("devices", map[string]interface{}{"user": userID, "name": devName})
 
-		// Sensor de batería
-		sensorID, err := createRecord("sensors", map[string]interface{}{
-			"device":      devID,
-			"sensor_type": batteryType,
-		})
-		if err != nil {
-			fmt.Println("Error creando sensor:", err)
-			continue
-		}
+		sensorID, _ := createRecord("sensors", map[string]interface{}{"device": devID, "sensor_type": batteryType})
+		hasPalletSensorID, _ := createRecord("sensors", map[string]interface{}{"device": devID, "sensor_type": hasPalletType})
+		stateSensorID, _ := createRecord("sensors", map[string]interface{}{"device": devID, "sensor_type": stateType})
 
-		// Sensor de temperatura (opcional)
-		_, _ = createRecord("sensors", map[string]interface{}{
-			"device":      devID,
-			"sensor_type": tempType,
-		})
-
-		_, _ = createRecord("sensors", map[string]interface{}{
-			"device":      devID,
-			"sensor_type": has_palletType,
-		})
-
-		// AGV struct
-		agvs[i] = &AGV{
-			ID:       devName,
-			DeviceID: devID,
-			X:        rand.Float64()*(MaxX-MinX) + MinX,
-			Y:        rand.Float64()*(MaxY-MinY) + MinY,
-			Battery:  MaxBattery,
-			Mission:  Idle,
-			SensorID: sensorID,
-		}
-
-		// Vincular device a ubicación inicial
 		_, _ = createRecord("devices_locations", map[string]interface{}{
-			"location": locEntrada,
+			"location": locEntradaID,
 			"device":   devID,
-			"placed_at":   time.Now().Format(time.RFC3339),
+			"placed_at": time.Now().Format(time.RFC3339),
 		})
-	}
 
-	// 6️⃣ Crear readings iniciales
-	fmt.Println("Creando readings iniciales...")
-	for _, agv := range agvs {
-		if agv == nil {
-			continue
-		}
-		_, err := createRecord("readings", map[string]interface{}{
-			"value":     agv.Battery,
-			"time":      time.Now().Format(time.RFC3339),
-			"sensor": agv.SensorID,
-		})
-		if err != nil {
-			fmt.Println("Error creando reading:", err)
-			continue
+		agvs[i] = &AGV{
+			ID:                   devName,
+			DeviceID:             devID,
+			X:                    locations[locEntradaID][0],
+			Y:                    locations[locEntradaID][1],
+			Battery:              MaxBattery,
+			Mission:              Idle,
+			SensorID:             sensorID,
+			HasPalletSensorID:    hasPalletSensorID,
+			StateSensorID:        stateSensorID,
+			TargetX:              locations[locCargaID][0],
+			TargetY:              locations[locCargaID][1],
+			stepsSinceLastPallet: rand.Intn(StepsPerPalletUpdate),
+			batteryOffset:        rand.Float64() * BatteryDrainPerStep,
 		}
 	}
-
-	return agvs, nil
+	return agvs, locations, locIDs, nil
 }
 
 // ----------------------------
-// SIMULACIÓN
+// SIMULATION
 // ----------------------------
-func (agv *AGV) Update() {
-	if agv.Battery < 20 {
+func (agv *AGV) Update(locations map[string][2]float64, locIDs []string) {
+	// CHARGING si batería < 90
+	if agv.Battery < 90 {
 		agv.Mission = Charging
-	} else if agv.Mission == Idle && rand.Float64() < 0.5 {
+	}
+
+	// MOVING si estaba Idle
+	if agv.Mission == Idle && rand.Float64() < 0.2 {
 		agv.Mission = Moving
-	} else if agv.Mission == Moving && rand.Float64() < 0.05 {
-		agv.Mission = Error
+		agv.TargetX = locations[locIDs[1]][0]
+		agv.TargetY = locations[locIDs[1]][1]
 	}
 
+	// Movimiento
 	if agv.Mission == Moving {
-		dx := rand.Float64()*2 - 1
-		dy := rand.Float64()*2 - 1
-		agv.X += dx
-		agv.Y += dy
-		if agv.X < MinX {
-			agv.X = MinX
-		}
-		if agv.X > MaxX {
-			agv.X = MaxX
-		}
-		if agv.Y < MinY {
-			agv.Y = MinY
-		}
-		if agv.Y > MaxY {
-			agv.Y = MaxY
+		dx := agv.TargetX - agv.X
+		dy := agv.TargetY - agv.Y
+		dist := math.Sqrt(dx*dx + dy*dy)
+		step := 1.0
+		if dist > step {
+			agv.X += dx / dist * step
+			agv.Y += dy / dist * step
+		} else {
+			agv.X = agv.TargetX
+			agv.Y = agv.TargetY
+			agv.Mission = Idle
 		}
 	}
 
+	// Batería
 	if agv.Mission != Charging && agv.Battery > MinBattery {
-		agv.Battery -= BatteryDrainPerStep
-		if agv.Battery < 0 {
-			agv.Battery = 0
+		agv.Battery -= BatteryDrainPerStep - agv.batteryOffset
+		if agv.Battery < MinBattery {
+			agv.Battery = MinBattery
+			agv.Mission = Error
 		}
-	}
-
-	if agv.Mission == Charging {
+	} else if agv.Mission == Charging {
 		agv.Battery += 1.5
 		if agv.Battery >= MaxBattery {
 			agv.Battery = MaxBattery
@@ -261,13 +208,45 @@ func (agv *AGV) Update() {
 }
 
 // ----------------------------
-// ENVIAR DATOS
+// SEND DATA
 // ----------------------------
 func (agv *AGV) SendReading() {
+	// Batería
 	_, _ = createRecord("readings", map[string]interface{}{
 		"sensor": agv.SensorID,
-		"time":      time.Now().Format(time.RFC3339),
-		"value":     agv.Battery,
+		"time":   time.Now().Format(time.RFC3339),
+		"value":  agv.Battery,
+	})
+
+	// HasPallet (0/1)
+	hasPallet := 0
+	agv.stepsSinceLastPallet++
+	if agv.stepsSinceLastPallet >= StepsPerPalletUpdate {
+		hasPallet = 1
+		agv.stepsSinceLastPallet = 0
+	}
+	_, _ = createRecord("readings", map[string]interface{}{
+		"sensor": agv.HasPalletSensorID,
+		"time":   time.Now().Format(time.RFC3339),
+		"value":  hasPallet,
+	})
+
+	// Estado como número
+	stateNum := 1
+	switch agv.Mission {
+	case Idle:
+		stateNum = 1
+	case Moving:
+		stateNum = 2
+	case Charging:
+		stateNum = 3
+	case Error:
+		stateNum = 4
+	}
+	_, _ = createRecord("readings", map[string]interface{}{
+		"sensor": agv.StateSensorID,
+		"time":   time.Now().Format(time.RFC3339),
+		"value":  stateNum,
 	})
 }
 
@@ -275,9 +254,9 @@ func (agv *AGV) SendReading() {
 // MAIN
 // ----------------------------
 func main() {
-	rand.New(rand.NewSource(time.Now().UnixNano()))
+	rand.Seed(time.Now().UnixNano())
 
-	agvs, err := initializeBaseData()
+	agvs, locations, locIDs, err := initializeBaseData()
 	if err != nil {
 		fmt.Println("Error inicializando datos:", err)
 		return
@@ -285,15 +264,12 @@ func main() {
 
 	var wg sync.WaitGroup
 	for _, agv := range agvs {
-		if agv == nil {
-			continue
-		}
 		wg.Add(1)
 		go func(a *AGV) {
 			defer wg.Done()
 			ticker := time.NewTicker(UpdatePeriod)
 			for range ticker.C {
-				a.Update()
+				a.Update(locations, locIDs)
 				a.SendReading()
 			}
 		}(agv)
