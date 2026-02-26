@@ -1,0 +1,65 @@
+input:
+  mqtt:
+    urls: ["tcp://mosquitto:1883"]
+    topics: ["agv/raw"]
+    client_id: "bento_processor"
+    qos: 1
+
+pipeline:
+  processors:
+    - mapping: |
+        # Copiamos todo primero para evitar pérdida de información
+        root = this
+
+        # Conversión matemática exacta
+        root.temperature_f = (this.temperature_c * 1.8 + 32)
+
+        # Mapeo explícito
+        root.device_id = this.device
+        root.original_value = this.temperature_c
+
+output:
+  mqtt:
+    urls: ["tcp://mosquitto:1883"]
+    topic: "agv/processed"
+    client_id: "bento_output"
+    qos: 1
+
+# =========================
+# UNIT TESTS
+# =========================
+
+tests:
+  - name: "Conversion exacta y mapeo completo sin pérdida"
+    target_processors: "/pipeline/processors"
+    input_batch:
+      - json_content:
+          device: "AGV-01"
+          temperature_c: 25
+          battery: 87.5
+          status: "MOVING"
+
+      - json_content:
+          device: "AGV-02"
+          temperature_c: 30
+          battery: 92.0
+          status: "IDLE"
+
+    output_batches:
+      - 
+        - json_equals:
+            device: "AGV-01"
+            temperature_c: 25
+            battery: 87.5
+            status: "MOVING"
+            temperature_f: 45.0  # 25*1.8+32
+            device_id: "AGV-01"
+            original_value: 25
+        - json_equals:
+            device: "AGV-02"
+            temperature_c: 30
+            battery: 92.0
+            status: "IDLE"
+            temperature_f: 86.0  # 30*1.8+32
+            device_id: "AGV-02"
+            original_value: 30
