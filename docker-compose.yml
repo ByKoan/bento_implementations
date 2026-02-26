@@ -44,6 +44,7 @@ services:
 
     volumes:
       - ./data:/app/data:rw
+      - ./tests:/app/tests:rw   # <--- añade esto
 
     ports:
       - "3000:3000"

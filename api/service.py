@@ -1,7 +1,8 @@
 import bentoml
 import threading
-from mqtt.listener import start, mqtt_client
-from core.batch_writer import BatchWriter
+from mqtt.listener import start
+with bentoml.importing():
+    from core.batch_writer import BatchWriter 
 
 
 '''
@@ -22,11 +23,13 @@ class MQTTService:
     '''
 
     def __init__(self):
+        # Creamos la instancia de BatchWriter
+        self.batch_writer = BatchWriter()
 
-        self.batch_writer = BatchWriter(mqtt_client=mqtt_client)
-
+        # Lanzamos el listener en un hilo
         thread = threading.Thread(
             target=start,
-            args=(self.batch_writer,)
+            args=(self.batch_writer,),  # start debe aceptar batch_writer
+            daemon=True
         )
         thread.start()
