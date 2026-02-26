@@ -12,24 +12,35 @@ from core.disk_queue import DiskQueue
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-COLLECTION = os.getenv("COLLECTION", "default_collection")
-MQTT_ERROR_TOPIC = os.getenv("MQTT_ERROR_TOPIC", "errors/topic")
+COLLECTION = os.getenv("COLLECTION")
+MQTT_ERROR_TOPIC = os.getenv("MQTT_ERROR_TOPIC")
 
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", 50))
-FLUSH_INTERVAL = int(os.getenv("FLUSH_INTERVAL", 5))
-MAX_RETRIES = int(os.getenv("MAX_RETRIES", 3))
-BASE_DELAY = float(os.getenv("BASE_DELAY", 1))
-MAX_DELAY = float(os.getenv("MAX_DELAY", 10))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE"))
+FLUSH_INTERVAL = int(os.getenv("FLUSH_INTERVAL"))
+MAX_RETRIES = int(os.getenv("MAX_RETRIES"))
+BASE_DELAY = float(os.getenv("BASE_DELAY"))
+MAX_DELAY = float(os.getenv("MAX_DELAY"))
 
 QUEUE_FILE = os.getenv("QUEUE_FILE")
 
 
 class BatchWriter:
-    """Solo buffer en disco, no hay buffer en memoria"""
+    '''
+     The BatchWriter class is responsible for managing the buffering and sending records to PocketBase
+     The in-memory buffer was eliminated to avoid duplicated data when db is turning on
+     The only buffer existing right now its the in-disk buffer saving all data while db is out.
+     It has background thread that periodically flushes look to the disk file and flush if the db is up again
+     Also handles retries with a exponential backoff and sends failed records to a MQTT errors topic if they exceed the maximum number of retries.
+    '''
 
     def __init__(self, mqtt_client=None):
+
+        '''
+        Initialize the class
+        '''
+
         self.mqtt_client = mqtt_client
-        self.lock = threading.Lock()
+        self.lock = threading.Lock() # To avoid race conditions
         self.running = True
 
         self.pb = PocketBaseClient()
@@ -39,21 +50,31 @@ class BatchWriter:
         if count:
             logger.info(f"Recuperados {count} registros pendientes en disco.")
 
-        # Hilo que sube registros del disco a PocketBase
+        # This thread will upload the records from disk to the PocketBase
         self.disk_thread = threading.Thread(target=self._disk_retry_loop, daemon=True)
         self.disk_thread.start()
 
     # ===============================
-    # PUBLIC: agregar registro directo al disco
+    # PUBLIC: Addings records to disk
     # ===============================
+
+    '''
+    This function wil add the record to the disk file
+    '''
+
     def add(self, ingested: dict, sensor_id: str):
         record = self._build_record(ingested, sensor_id)
         with self.lock:
-            self.disk.append([record])  # siempre va directo al disco
+            self.disk.append([record])
 
     # ===============================
     # RECORD BUILDER
     # ===============================
+
+    '''
+    This function will build the record with the PocketBase format
+    '''
+
     def _build_record(self, ingested: dict, sensor_id: str):
         dt = datetime.fromisoformat(ingested["ingestion_timestamp"].replace("Z", "+00:00"))
         dt = dt.replace(microsecond=(dt.microsecond // 1000) * 1000)
@@ -62,6 +83,11 @@ class BatchWriter:
     # ===============================
     # LOOP DISCO -> DB
     # ===============================
+
+    '''
+    This function create a loop to save all records in disk file & upload all the records from disk when db is on again
+    '''
+
     def _disk_retry_loop(self):
         while self.running:
             time.sleep(FLUSH_INTERVAL)
@@ -75,7 +101,7 @@ class BatchWriter:
                 logger.warning("DB caída, esperando para subir registros del disco...")
                 continue
 
-            # Subimos en batches
+            # Uploading in batches
             for i in range(0, len(disk_records), BATCH_SIZE):
                 batch = disk_records[i:i + BATCH_SIZE]
                 sent_records = self._send_with_retry_batch(batch)
@@ -88,6 +114,11 @@ class BatchWriter:
     # ===============================
     # HEALTH CHECK
     # ===============================
+
+    '''
+    This function will look up if db is on
+    '''
+    
     def _is_db_alive(self):
         try:
             return self.pb.get("/api/health").status_code == 200
@@ -97,6 +128,11 @@ class BatchWriter:
     # ===============================
     # ERROR MQTT
     # ===============================
+
+    '''
+    This function will send the record to the 'errors' topic if the record has something invalid
+    '''
+
     def _send_to_error_topic(self, record, reason):
         if not self.mqtt_client:
             logger.error("MQTT client no disponible")
@@ -109,8 +145,13 @@ class BatchWriter:
             logger.critical("No se pudo publicar en error topic: %s", e)
 
     # ===============================
-    # SEND CON REINTENTOS POR BATCH
+    # SEND WITH RETRIES IN BATCHES
     # ===============================
+
+    '''
+    This function will try to send records in batches with some retries if db is out
+    '''
+
     def _send_with_retry_batch(self, batch):
         attempt = 0
         while attempt < MAX_RETRIES:
@@ -137,10 +178,10 @@ class BatchWriter:
                     delay = min(BASE_DELAY * (2 ** attempt), MAX_DELAY) + random.uniform(0, 0.5)
                     time.sleep(delay)
                 else:
-                    # Si falla MAX_RETRIES, enviamos a error y los consideramos procesados
+                    # If after MAX_RETRIES reaches keeps failling, the record will be send it to 'errors' topic
                     for r in batch:
                         self._send_to_error_topic(r, "max_retries_exceeded")
-                    return batch  # marcamos como "procesados" para limpiar del disco
+                    return batch  # will check it like 'procesados' for continue processing
 
-# Instancia global
+# Global instance of the class to be used in other code
 batch_writer = BatchWriter()

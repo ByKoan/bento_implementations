@@ -4,7 +4,6 @@ from mqtt.listener import start
 with bentoml.importing():
     from core.batch_writer import BatchWriter 
 
-
 '''
 We set the number of workers to 1 to ensure that we have a single instance of the MQTT listener and batch writer running
 Wich simplifies the handling of the disk queue and retries
@@ -23,13 +22,9 @@ class MQTTService:
     '''
 
     def __init__(self):
-        # Creamos la instancia de BatchWriter
+        # Get instance of BatchWriter
         self.batch_writer = BatchWriter()
 
-        # Lanzamos el listener en un hilo
-        thread = threading.Thread(
-            target=start,
-            args=(self.batch_writer,),  # start debe aceptar batch_writer
-            daemon=True
-        )
+        # Start the listener on a thread
+        thread = threading.Thread(target=start, args=(self.batch_writer,), daemon=True)
         thread.start()

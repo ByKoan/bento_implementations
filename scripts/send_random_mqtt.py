@@ -16,7 +16,7 @@ if not TEMP_ID or not BATTERY_ID or not STATUS_ID:
 
 BROKER = "host.docker.internal"
 PORT = 1883
-TOTAL_MESSAGES = 120  # para pruebas rápidas
+TOTAL_MESSAGES = 21  # para pruebas rápidas
 
 TEMP_TOPIC = f"devices/{TEMP_ID}/readings"
 BATTERY_TOPIC = f"devices/{BATTERY_ID}/readings"
