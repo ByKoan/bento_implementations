@@ -1,14 +1,18 @@
 import requests
+import dotenv
+import os
+
+dotenv.load_dotenv()
 
 '''
     This is a simple script to obtain the token of a user in PocketBase
 '''
 
 # Configuration
-BASE_URL = "http://127.0.0.1:8090"
-COLLECTION = "_superusers"  # Must be the unique id value of the collection
-EMAIL = "koan@koan.com"  # User email
-PASSWORD = "koan_12345"  # User password
+BASE_URL = os.getenv("POCKETBASE_URL")
+COLLECTION = os.getenv("AUTHENTICATION_COLLECTION")
+EMAIL = os.getenv("POCKETBASE_SUPERUSER")
+PASSWORD = os.getenv("POCKETBASE_SUPERPASSWORD")
 
 # Authentication endpoint
 url = f"{BASE_URL}/api/collections/{COLLECTION}/auth-with-password"
