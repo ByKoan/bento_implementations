@@ -38,7 +38,7 @@ def on_message(client, userdata, msg):
 
     '''
     This function execute automatically every time a record is sended
-    It decode the message validate the fields add 'ingestion_timestamp' if it dont came
+    It decode the message validate the fields add 'time' if it dont came
     Add 'temp_c' if it's necessary and send it to the batchwriter 
     '''
 
@@ -49,9 +49,9 @@ def on_message(client, userdata, msg):
             print(f"Mensaje MQTT incompleto: {payload}", flush=True)
             return
 
-        # Add ingestion_timestamp if needed
-        if "ingestion_timestamp" not in payload:
-            payload["ingestion_timestamp"] = datetime.datetime.utcnow().isoformat() + "Z"
+        # Add time if needed
+        if "time" not in payload:
+            payload["time"] = datetime.datetime.utcnow().isoformat() + "Z"
 
         # Add temp_c if needed
         if "temp_c" not in payload:

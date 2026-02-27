@@ -3,7 +3,7 @@ import yaml
 
 def test_bento_yaml_pipeline():
     # Loading YAML
-    with open("tests/test-bento.yml", "r") as f:
+    with open("tests/test_bento.yml", "r") as f:
         data = yaml.safe_load(f)
 
     # Validate input section

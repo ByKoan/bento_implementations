@@ -1,0 +1,49 @@
+# Producción MQTT → Python → Benthos → PocketBase
+# ---------------------------------------------------------------
+# FORMATO DE JSON QUE RECIBE BENTHOS (por registro)
+# {
+#   "sensor": "5bqfwcv9g6g1tm6",
+#   "value": 94,
+#   "ingestion_timestamp": "2026-02-27T08:30:13.063626Z",
+#   "temp_c": 94.0
+# }
+
+input:
+  stdin: {}  # Python le pasa los registros vía stdin
+
+pipeline:
+  processors:
+    - bloblang: |
+        let temp = if this.temp_c.exists() { this.temp_c.float() } else { this.value.float() }
+        let parsed = this.ingestion_timestamp.ts_parse()
+        let millis = ($parsed.unix_nano() / 1000000).floor()
+        let formatted_time = $millis.ts_format("2006-01-02 15:04:05.000Z")
+        root = {
+          "sensor": this.sensor,
+          "time": $formatted_time,  
+          "value": $temp
+        }
+
+output:
+  http_client:
+    url: ${POCKETBASE_URL}/api/batch
+    verb: POST
+    headers:
+      Content-Type: application/json
+      Authorization: "Bearer ${POCKETBASE_TOKEN}"
+    batching:
+      count: 100
+      period: 5s
+    retries: 5
+    retry_period: 1s
+    max_retry_backoff: 30s
+    processors:
+      - bloblang: |
+          # Convertir a array de requests para /api/batch
+          root = {
+            "requests": this.map_each(item -> {
+              "method": "POST",
+              "url": "/api/collections/" + env("COLLECTION") + "/records",
+              "body": item
+            })
+          }

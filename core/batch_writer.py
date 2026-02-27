@@ -63,23 +63,25 @@ class BatchWriter:
     '''
 
     def add(self, ingested: dict, sensor_id: str):
-        record = self._build_record(ingested, sensor_id)
         with self.lock:
-            self.disk.append([record])
+            self.disk.append([ingested])
+
 
     # ===============================
     # RECORD BUILDER
     # ===============================
 
-    '''
-    This function will build the record with the PocketBase format
-    '''
 
+    # This function will build the record with the PocketBase format (This function dont require benthos.yaml)
+    
+    '''
     def _build_record(self, ingested: dict, sensor_id: str):
         dt = datetime.fromisoformat(ingested["ingestion_timestamp"].replace("Z", "+00:00"))
         dt = dt.replace(microsecond=(dt.microsecond // 1000) * 1000)
         return {"sensor": sensor_id, "time": dt.isoformat().replace("+00:00", "Z"), "value": float(ingested["temp_c"])}
 
+    '''    
+        
     # ===============================
     # LOOP DISCO -> DB
     # ===============================
