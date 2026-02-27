@@ -6,18 +6,43 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
 	"time"
 )
 
 const (
-	baseURL    = "http://127.0.0.1:8090/api/collections"
-	adminToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb2xsZWN0aW9uSWQiOiJwYmNfMzE0MjYzNTgyMyIsImV4cCI6MTc3MjI3NTAzNSwiaWQiOiJidGg5bXMwMXk5YXc3ZWciLCJyZWZyZXNoYWJsZSI6dHJ1ZSwidHlwZSI6ImF1dGgifQ.Z3gQBmHKUa0bDry-vxJ2FPbsLA7-0PZj1OrDGX-GKz8" // Reemplaza con un token admin válido
-	emailAdmin = "admin@example.com"     // User mail that will be created
-	password   = "Admin123!"             // User password
+	baseURL       = "http://127.0.0.1:8090/api/collections"
+	adminToken    = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb2xsZWN0aW9uSWQiOiJwYmNfMzE0MjYzNTgyMyIsImV4cCI6MTc3MjI4MDM3OCwiaWQiOiJidGg5bXMwMXk5YXc3ZWciLCJyZWZyZXNoYWJsZSI6dHJ1ZSwidHlwZSI6ImF1dGgifQ.t-OqBVPZsE47-dnBejrs-TzYt-p1EIat8xadfvxJ91o" // reemplaza con tu token admin
+	emailAdmin    = "admin@example.com"
+	password      = "Admin123!"
+	updatePeriod  = 5 * time.Second // intervalo de envío de lecturas
+	batteryMin    = 20              // % batería mínima antes de charging
+	hasPalletTick = 5               // ticks que mantiene pallet
 )
 
-// Func that create a record in PocketBase
+// AGV para simular lecturas
+type AGV struct {
+	ID          string
+	Temperature float64
+	Battery     float64
+	Status      int
+	HasPallet   int
+	PalletTicks  int
+	SensorIDs   map[string]string // "temperature","battery","has_pallet","status"
+}
+
+// Lectura enviada a Benthos
+type Reading struct {
+	Sensor             string  `json:"sensor"`
+	Value              float64 `json:"value"`
+	HasPallet          int     `json:"has_pallet"`
+	Status             int     `json:"status"`
+	IngestionTimestamp string  `json:"ingestion_timestamp"`
+	TempC              float64 `json:"temp_c"`
+}
+
+// Función helper para crear un registro en PocketBase
 func createRecord(collection string, data map[string]interface{}) string {
 	url := fmt.Sprintf("%s/%s/records", baseURL, collection)
 	jsonData, _ := json.Marshal(data)
@@ -43,7 +68,7 @@ func createRecord(collection string, data map[string]interface{}) string {
 	return res["id"].(string)
 }
 
-// Func to find the user by mail
+// Buscar usuario por email
 func getUserIDByEmail(email string) string {
 	url := fmt.Sprintf("%s/users/records?filter=email='%s'", baseURL, email)
 	req, _ := http.NewRequest("GET", url, nil)
@@ -69,9 +94,10 @@ func getUserIDByEmail(email string) string {
 }
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
 	timestamp := time.Now().Unix()
 
-	// Create usuario admin
+	// 1️⃣ Crear usuario admin
 	userID := getUserIDByEmail(emailAdmin)
 	if userID == "" {
 		userID = createRecord("users", map[string]interface{}{
@@ -86,7 +112,7 @@ func main() {
 		fmt.Println("Usuario ya existe con ID:", userID)
 	}
 
-	// Create locations
+	// 2️⃣ Crear localizaciones
 	locations := []struct {
 		name string
 		lat  float64
@@ -96,20 +122,19 @@ func main() {
 		{"Zona B", 10.5, 5.2},
 		{"Zona C", -3.3, 8.8},
 	}
-
 	locIDs := make([]string, 0, len(locations))
 	for _, loc := range locations {
 		id := createRecord("locations", map[string]interface{}{
 			"name": loc.name,
-			"point": map[string]float64{
+			"point": map[string]float64{ // <-- debe ser un mapa, no string
 				"lat": loc.lat,
-				"lng": loc.lng,
+				"lng": loc.lng, // no lon
 			},
 		})
 		locIDs = append(locIDs, id)
 	}
 
-	// Create devices
+	// 3️⃣ Crear devices (AGVs)
 	agvs := []string{
 		fmt.Sprintf("AGV-01-%d", timestamp),
 		fmt.Sprintf("AGV-02-%d", timestamp),
@@ -126,7 +151,7 @@ func main() {
 		agvIDs = append(agvIDs, id)
 	}
 
-	// Create devices_locations
+	// 4️⃣ Crear devices_locations
 	assignments := []struct {
 		agvIndex int
 		locIndex int
@@ -141,12 +166,12 @@ func main() {
 		})
 	}
 
-	// Create sensor_contexts
+	// 5️⃣ Crear sensor_context
 	sensorContextID := createRecord("sensor_contexts", map[string]interface{}{
 		"context": "data",
 	})
 
-	// Create sensor_types
+	// 6️⃣ Crear sensor_types
 	sensorTypes := []struct {
 		magnitude string
 		unit      string
@@ -166,15 +191,101 @@ func main() {
 		sensorTypeIDs = append(sensorTypeIDs, id)
 	}
 
-	// Create sensors
+	// 7️⃣ Crear sensores
+	sensorsMap := map[string]map[string]string{} // agvID -> sensor_type -> sensorID
 	for _, agvID := range agvIDs {
-		for _, stID := range sensorTypeIDs {
-			createRecord("sensors", map[string]interface{}{
+		sensorsMap[agvID] = map[string]string{}
+		for i, stID := range sensorTypeIDs {
+			sensorID := createRecord("sensors", map[string]interface{}{
 				"device":      agvID,
 				"sensor_type": stID,
 			})
+			switch i {
+			case 0:
+				sensorsMap[agvID]["temperature"] = sensorID
+			case 1:
+				sensorsMap[agvID]["battery"] = sensorID
+			case 2:
+				sensorsMap[agvID]["has_pallet"] = sensorID
+			case 3:
+				sensorsMap[agvID]["status"] = sensorID
+			}
 		}
 	}
 
-	fmt.Println("Inicialización completa: usuario, AGVs, localizaciones, device_locations, sensor_context, sensor_types y sensors creados.")
+	fmt.Println("Inicialización completa. Empezando simulación de lecturas...")
+
+	// 8️⃣ Simulación de lecturas en tiempo real para Benthos
+	agvObjs := []*AGV{}
+	for _, agvID := range agvIDs {
+		agvObjs = append(agvObjs, &AGV{
+			ID:          agvID,
+			Temperature: 20 + rand.Float64()*10,
+			Battery:     100,
+			Status:      1,
+			HasPallet:   0,
+			PalletTicks: 0,
+			SensorIDs:   sensorsMap[agvID],
+		})
+	}
+
+	ticker := time.NewTicker(updatePeriod)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		for _, agv := range agvObjs {
+			// temperatura aleatoria
+			agv.Temperature += rand.Float64()*2 - 1
+			if agv.Temperature < 15 {
+				agv.Temperature = 15
+			}
+			if agv.Temperature > 35 {
+				agv.Temperature = 35
+			}
+
+			// batería
+			agv.Battery -= rand.Float64() * 2
+			if agv.Battery < 0 {
+				agv.Battery = 100
+			}
+
+			// estado
+			agv.Status = 1
+			if rand.Intn(10) < 3 || agv.HasPallet == 1 {
+				agv.Status = 2
+			}
+			if agv.Battery < batteryMin {
+				agv.Status = 3
+			}
+			if rand.Intn(100) < 2 {
+				agv.Status = 4
+			}
+
+			// pallet
+			if agv.PalletTicks == 0 && rand.Intn(5) == 0 {
+				agv.HasPallet = 1
+				agv.PalletTicks = hasPalletTick
+			}
+			if agv.PalletTicks > 0 {
+				agv.PalletTicks--
+				if agv.PalletTicks == 0 {
+					agv.HasPallet = 0
+				}
+			}
+
+			// generar lecturas
+			readings := []Reading{
+				{Sensor: agv.SensorIDs["temperature"], Value: agv.Temperature, HasPallet: agv.HasPallet, Status: agv.Status, IngestionTimestamp: time.Now().UTC().Format(time.RFC3339Nano), TempC: agv.Temperature},
+				{Sensor: agv.SensorIDs["battery"], Value: agv.Battery, HasPallet: agv.HasPallet, Status: agv.Status, IngestionTimestamp: time.Now().UTC().Format(time.RFC3339Nano), TempC: agv.Temperature},
+				{Sensor: agv.SensorIDs["has_pallet"], Value: float64(agv.HasPallet), HasPallet: agv.HasPallet, Status: agv.Status, IngestionTimestamp: time.Now().UTC().Format(time.RFC3339Nano), TempC: agv.Temperature},
+				{Sensor: agv.SensorIDs["status"], Value: float64(agv.Status), HasPallet: agv.HasPallet, Status: agv.Status, IngestionTimestamp: time.Now().UTC().Format(time.RFC3339Nano), TempC: agv.Temperature},
+			}
+
+			// enviar a stdout para Benthos
+			for _, r := range readings {
+				j, _ := json.Marshal(r)
+				fmt.Println(string(j))
+			}
+		}
+	}
 }
