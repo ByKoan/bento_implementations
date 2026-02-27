@@ -9,7 +9,7 @@ dotenv.load_dotenv()
 '''
 
 # Configuration
-BASE_URL = os.getenv("POCKETBASE_URL")
+BASE_URL = os.getenv("DB_URL")
 COLLECTION = os.getenv("AUTHENTICATION_COLLECTION")
 EMAIL = os.getenv("POCKETBASE_SUPERUSER")
 PASSWORD = os.getenv("POCKETBASE_SUPERPASSWORD")

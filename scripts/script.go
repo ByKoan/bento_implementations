@@ -4,315 +4,177 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math"
-	"math/rand"
+	"io/ioutil"
+	"log"
 	"net/http"
-	"sync"
 	"time"
 )
 
-// ----------------------------
-// CONFIG
-// ----------------------------
 const (
-	NumAGVs              = 5
-	UpdatePeriod         = 1 * time.Second
-	MaxBattery           = 100.0
-	MinBattery           = 0.0
-	BatteryDrainPerStep  = 0.5
-	StepsPerPalletUpdate = 10
-	TicksPerPalletMove   = 10 // número de ticks que el AGV se mantiene en movimiento con pallet
-
-	PocketBaseURL = "http://127.0.0.1:8090/api/collections"
-	AdminToken    = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb2xsZWN0aW9uSWQiOiJwYmNfMzE0MjYzNTgyMyIsImV4cCI6MTc3MjExMjI5OCwiaWQiOiJvc3BnZzR2MG5ncDJjamEiLCJyZWZyZXNoYWJsZSI6dHJ1ZSwidHlwZSI6ImF1dGgifQ.CEWx_LOBYyHSCii48qlHPeA1JGy30VzvcYVD5tRoyiU"
+	baseURL    = "http://127.0.0.1:8090/api/collections"
+	adminToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb2xsZWN0aW9uSWQiOiJwYmNfMzE0MjYzNTgyMyIsImV4cCI6MTc3MjI3NTAzNSwiaWQiOiJidGg5bXMwMXk5YXc3ZWciLCJyZWZyZXNoYWJsZSI6dHJ1ZSwidHlwZSI6ImF1dGgifQ.Z3gQBmHKUa0bDry-vxJ2FPbsLA7-0PZj1OrDGX-GKz8" // Reemplaza con un token admin válido
+	emailAdmin = "admin@example.com"     // User mail that will be created
+	password   = "Admin123!"             // User password
 )
 
-// ----------------------------
-// TIPOS
-// ----------------------------
-type MissionState string
+// Func that create a record in PocketBase
+func createRecord(collection string, data map[string]interface{}) string {
+	url := fmt.Sprintf("%s/%s/records", baseURL, collection)
+	jsonData, _ := json.Marshal(data)
 
-const (
-	Idle     MissionState = "IDLE"
-	Moving   MissionState = "MOVING"
-	Charging MissionState = "CHARGING"
-	Error    MissionState = "ERROR"
-)
-
-type AGV struct {
-	ID                   string
-	DeviceID             string
-	X                    float64
-	Y                    float64
-	Battery              float64
-	Mission              MissionState
-	SensorID             string
-	StateSensorID        string
-	HasPalletSensorID    string
-	TargetX              float64
-	TargetY              float64
-	stepsSinceLastPallet int
-	batteryOffset        float64
-	lastHasPallet        int
-	ticksWithPallet      int // cuenta ticks en movimiento con pallet
-}
-
-// ----------------------------
-// GENERAL FUNCTIONS
-// ----------------------------
-func createRecord(collection string, payload map[string]interface{}) (string, error) {
-	url := fmt.Sprintf("%s/%s/records", PocketBaseURL, collection)
-	data, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(data))
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+AdminToken)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		log.Fatal(err)
 	}
 	defer resp.Body.Close()
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
-	idStr, ok := result["id"].(string)
-	if !ok {
-		return "", fmt.Errorf("no id returned for %s, body: %v", collection, result)
+
+	bodyBytes, _ := ioutil.ReadAll(resp.Body)
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		log.Fatalf("Error creando %s: %s\n%s", collection, resp.Status, string(bodyBytes))
 	}
-	return idStr, nil
+
+	var res map[string]interface{}
+	json.Unmarshal(bodyBytes, &res)
+	return res["id"].(string)
 }
 
-// ----------------------------
-// HELPER: CREATE GEOPOINT
-// ----------------------------
-func createLocationGeo(name string, lat, lng float64) (string, error) {
-	return createRecord("locations", map[string]interface{}{
-		"name":  name,
-		"point": map[string]interface{}{"lat": lat, "lng": lng},
-	})
+// Func to find the user by mail
+func getUserIDByEmail(email string) string {
+	url := fmt.Sprintf("%s/users/records?filter=email='%s'", baseURL, email)
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := ioutil.ReadAll(resp.Body)
+	var res map[string]interface{}
+	json.Unmarshal(bodyBytes, &res)
+
+	items, ok := res["items"].([]interface{})
+	if ok && len(items) > 0 {
+		user := items[0].(map[string]interface{})
+		return user["id"].(string)
+	}
+	return ""
 }
 
-// ----------------------------
-// DATA INITIALIZATION
-// ----------------------------
-func initializeBaseData() ([]*AGV, map[string][2]float64, []string, error) {
-	adminID, _ := createRecord("users", map[string]interface{}{
-		"email":           fmt.Sprintf("admin_%d@example.com", time.Now().UnixNano()),
-		"password":        "admin123",
-		"passwordConfirm": "admin123",
-		"emailVisibility": true,
-		"name":            "Admin User",
-	})
-	operatorID, _ := createRecord("users", map[string]interface{}{
-		"email":           fmt.Sprintf("operator_%d@example.com", time.Now().UnixNano()),
-		"password":        "operator123",
-		"passwordConfirm": "operator123",
-		"emailVisibility": true,
-		"name":            "Operator User",
-	})
+func main() {
+	timestamp := time.Now().Unix()
 
-	locations := make(map[string][2]float64)
-	locIDs := make([]string, 0)
+	// Create usuario admin
+	userID := getUserIDByEmail(emailAdmin)
+	if userID == "" {
+		userID = createRecord("users", map[string]interface{}{
+			"email":           emailAdmin,
+			"password":        password,
+			"passwordConfirm": password,
+			"name":            "Admin",
+			"emailVisibility": true,
+		})
+		fmt.Println("Usuario creado con ID:", userID)
+	} else {
+		fmt.Println("Usuario ya existe con ID:", userID)
+	}
 
-	// Crear locations correctamente
-	locData := []struct {
-		Name string
-		Lat  float64
-		Lng  float64
+	// Create locations
+	locations := []struct {
+		name string
+		lat  float64
+		lng  float64
 	}{
-		{"Entrada Planta", 10.0, 10.0},
-		{"Carga Planta", 50.0, 40.0},
-		{"Salida Planta", 90.0, 20.0},
+		{"Zona A", 33.4, 45.2},
+		{"Zona B", 10.5, 5.2},
+		{"Zona C", -3.3, 8.8},
 	}
 
-	for _, loc := range locData {
-		locID, err := createLocationGeo(loc.Name, loc.Lat, loc.Lng)
-		if err != nil {
-			fmt.Println("Error creando location:", err)
-			continue
-		}
-		locations[locID] = [2]float64{loc.Lat, loc.Lng}
-		locIDs = append(locIDs, locID)
+	locIDs := make([]string, 0, len(locations))
+	for _, loc := range locations {
+		id := createRecord("locations", map[string]interface{}{
+			"name": loc.name,
+			"point": map[string]float64{
+				"lat": loc.lat,
+				"lng": loc.lng,
+			},
+		})
+		locIDs = append(locIDs, id)
 	}
 
-	ctxDATA, _ := createRecord("sensor_contexts", map[string]interface{}{"context": "DATA"})
-	batteryType, _ := createRecord("sensor_types", map[string]interface{}{"sensor_context": ctxDATA, "magnitude": "battery", "unit": "%"})
-	hasPalletType, _ := createRecord("sensor_types", map[string]interface{}{"sensor_context": ctxDATA, "magnitude": "has_pallet", "unit": "0/1"})
-	stateType, _ := createRecord("sensor_types", map[string]interface{}{"sensor_context": ctxDATA, "magnitude": "mission_state", "unit": "1/2/3/4"})
+	// Create devices
+	agvs := []string{
+		fmt.Sprintf("AGV-01-%d", timestamp),
+		fmt.Sprintf("AGV-02-%d", timestamp),
+		fmt.Sprintf("AGV-03-%d", timestamp),
+		fmt.Sprintf("AGV-04-%d", timestamp),
+		fmt.Sprintf("AGV-05-%d", timestamp),
+	}
+	agvIDs := make([]string, 0, len(agvs))
+	for _, name := range agvs {
+		id := createRecord("devices", map[string]interface{}{
+			"user": userID,
+			"name": name,
+		})
+		agvIDs = append(agvIDs, id)
+	}
 
-	agvs := make([]*AGV, NumAGVs)
-	for i := 0; i < NumAGVs; i++ {
-		userID := operatorID
-		if i%2 == 0 {
-			userID = adminID
-		}
-		devName := fmt.Sprintf("AGV-%d-%d", i+1, time.Now().UnixNano())
-		devID, _ := createRecord("devices", map[string]interface{}{"user": userID, "name": devName})
-
-		sensorID, _ := createRecord("sensors", map[string]interface{}{"device": devID, "sensor_type": batteryType})
-		hasPalletSensorID, _ := createRecord("sensors", map[string]interface{}{"device": devID, "sensor_type": hasPalletType})
-		stateSensorID, _ := createRecord("sensors", map[string]interface{}{"device": devID, "sensor_type": stateType})
-
-		// Vincular device a la location inicial
-		_, _ = createRecord("devices_locations", map[string]interface{}{
-			"device":   devID,
-			"location": locIDs[0], // Entrada Planta
+	// Create devices_locations
+	assignments := []struct {
+		agvIndex int
+		locIndex int
+	}{
+		{0, 0}, {1, 1}, {2, 2}, {3, 0}, {4, 1},
+	}
+	for _, a := range assignments {
+		createRecord("devices_locations", map[string]interface{}{
+			"device":    agvIDs[a.agvIndex],
+			"location":  locIDs[a.locIndex],
 			"placed_at": time.Now().Format(time.RFC3339),
 		})
-
-		agvs[i] = &AGV{
-			ID:                   devName,
-			DeviceID:             devID,
-			X:                    locations[locIDs[0]][0],
-			Y:                    locations[locIDs[0]][1],
-			Battery:              MaxBattery,
-			Mission:              Idle,
-			SensorID:             sensorID,
-			HasPalletSensorID:    hasPalletSensorID,
-			StateSensorID:        stateSensorID,
-			TargetX:              locations[locIDs[1]][0],
-			TargetY:              locations[locIDs[1]][1],
-			stepsSinceLastPallet: rand.Intn(StepsPerPalletUpdate),
-			batteryOffset:        rand.Float64() * BatteryDrainPerStep,
-			lastHasPallet:        0,
-			ticksWithPallet:      0,
-		}
 	}
 
-	return agvs, locations, locIDs, nil
-}
-
-// ----------------------------
-// SIMULATION
-// ----------------------------
-func (agv *AGV) Update(locations map[string][2]float64, locIDs []string) {
-	// Primero batería < 90 => Charging
-	if agv.Battery < 90 {
-		agv.Mission = Charging
-	}
-
-	// Movimiento forzado por pallet
-	if agv.lastHasPallet == 1 && agv.Mission != Charging {
-		agv.Mission = Moving
-		agv.TargetX = locations[locIDs[1]][0] // Carga Planta
-		agv.TargetY = locations[locIDs[1]][1]
-		agv.ticksWithPallet++
-		if agv.ticksWithPallet >= TicksPerPalletMove {
-			// Fin del movimiento con pallet, reset
-			agv.lastHasPallet = 0
-			agv.ticksWithPallet = 0
-			agv.Mission = Idle
-		}
-	}
-
-	// Movimiento random si Idle
-	if agv.Mission == Idle && rand.Float64() < 0.2 {
-		agv.Mission = Moving
-		agv.TargetX = locations[locIDs[1]][0] // Carga Planta
-		agv.TargetY = locations[locIDs[1]][1]
-	}
-
-	// Movimiento
-	if agv.Mission == Moving {
-		dx := agv.TargetX - agv.X
-		dy := agv.TargetY - agv.Y
-		dist := math.Sqrt(dx*dx + dy*dy)
-		step := 1.0
-		if dist > step {
-			agv.X += dx / dist * step
-			agv.Y += dy / dist * step
-		} else {
-			agv.X = agv.TargetX
-			agv.Y = agv.TargetY
-			if agv.lastHasPallet == 0 { // Si no lleva pallet, vuelve a Idle
-				agv.Mission = Idle
-			}
-		}
-	}
-
-	// Batería
-	if agv.Mission != Charging && agv.Battery > MinBattery {
-		agv.Battery -= BatteryDrainPerStep - agv.batteryOffset
-		if agv.Battery < MinBattery {
-			agv.Battery = MinBattery
-			agv.Mission = Error
-		}
-	} else if agv.Mission == Charging {
-		agv.Battery += 1.5
-		if agv.Battery >= MaxBattery {
-			agv.Battery = MaxBattery
-			agv.Mission = Idle
-		}
-	}
-}
-
-// ----------------------------
-// SEND DATA
-// ----------------------------
-func (agv *AGV) SendReading() {
-	// Batería
-	_, _ = createRecord("readings", map[string]interface{}{
-		"sensor": agv.SensorID,
-		"time":   time.Now().Format(time.RFC3339),
-		"value":  agv.Battery,
+	// Create sensor_contexts
+	sensorContextID := createRecord("sensor_contexts", map[string]interface{}{
+		"context": "data",
 	})
 
-	// HasPallet (0/1)
-	hasPallet := 0
-	agv.stepsSinceLastPallet++
-	if agv.stepsSinceLastPallet >= StepsPerPalletUpdate {
-		hasPallet = 1
-		agv.stepsSinceLastPallet = 0
+	// Create sensor_types
+	sensorTypes := []struct {
+		magnitude string
+		unit      string
+	}{
+		{"temperature", "°C"},
+		{"battery", "%"},
+		{"has_pallet", "0/1"},
+		{"status", "0/1/2/3"},
 	}
-	agv.lastHasPallet = hasPallet
-
-	_, _ = createRecord("readings", map[string]interface{}{
-		"sensor": agv.HasPalletSensorID,
-		"time":   time.Now().Format(time.RFC3339),
-		"value":  hasPallet,
-	})
-
-	// Estado como número
-	stateNum := 1
-	switch agv.Mission {
-	case Idle:
-		stateNum = 1
-	case Moving:
-		stateNum = 2
-	case Charging:
-		stateNum = 3
-	case Error:
-		stateNum = 4
-	}
-	_, _ = createRecord("readings", map[string]interface{}{
-		"sensor": agv.StateSensorID,
-		"time":   time.Now().Format(time.RFC3339),
-		"value":  stateNum,
-	})
-}
-
-// ----------------------------
-// MAIN
-// ----------------------------
-func main() {
-	rand.Seed(time.Now().UnixNano())
-
-	agvs, locations, locIDs, err := initializeBaseData()
-	if err != nil {
-		fmt.Println("Error inicializando datos:", err)
-		return
+	sensorTypeIDs := make([]string, 0, len(sensorTypes))
+	for _, st := range sensorTypes {
+		id := createRecord("sensor_types", map[string]interface{}{
+			"sensor_context": sensorContextID,
+			"magnitude":      st.magnitude,
+			"unit":           st.unit,
+		})
+		sensorTypeIDs = append(sensorTypeIDs, id)
 	}
 
-	var wg sync.WaitGroup
-	for _, agv := range agvs {
-		wg.Add(1)
-		go func(a *AGV) {
-			defer wg.Done()
-			ticker := time.NewTicker(UpdatePeriod)
-			for range ticker.C {
-				a.Update(locations, locIDs)
-				a.SendReading()
-			}
-		}(agv)
+	// Create sensors
+	for _, agvID := range agvIDs {
+		for _, stID := range sensorTypeIDs {
+			createRecord("sensors", map[string]interface{}{
+				"device":      agvID,
+				"sensor_type": stID,
+			})
+		}
 	}
-	wg.Wait()
+
+	fmt.Println("Inicialización completa: usuario, AGVs, localizaciones, device_locations, sensor_context, sensor_types y sensors creados.")
 }
