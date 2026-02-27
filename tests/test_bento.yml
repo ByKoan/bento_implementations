@@ -1,65 +1,70 @@
 input:
-  mqtt:
-    urls: ["tcp://mosquitto:1883"]
-    topics: ["agv/raw"]
-    client_id: "bento_processor"
-    qos: 1
+  stdin: {}
 
 pipeline:
   processors:
-    - mapping: |
-        # Copiamos todo primero para evitar pérdida de información
-        root = this
-
-        # Conversión matemática exacta
-        root.temperature_f = (this.temperature_c * 1.8 + 32)
-
-        # Mapeo explícito
-        root.device_id = this.device
-        root.original_value = this.temperature_c
+    - bloblang: |
+        let temp = if this.temp_c.exists() { this.temp_c.float() } else { this.value.float() }
+        let parsed = this.ingestion_timestamp.ts_parse()
+        let millis = ($parsed.unix_nano() / 1000000).floor()
+        let formatted_time = $millis.ts_format("2006-01-02 15:04:05.000Z")
+        root = {
+          "sensor": this.sensor,
+          "time": $formatted_time,  
+          "value": $temp
+        }
 
 output:
-  mqtt:
-    urls: ["tcp://mosquitto:1883"]
-    topic: "agv/processed"
-    client_id: "bento_output"
-    qos: 1
+  http_client:
+    url: ${POCKETBASE_URL}/api/batch
+    verb: POST
+    headers:
+      Content-Type: application/json
+      Authorization: "Bearer ${POCKETBASE_TOKEN}"
+    batching:
+      count: 100
+      period: 5s
+    retries: 5
+    retry_period: 1s
+    max_retry_backoff: 30s
+    processors:
+      - bloblang: |
+          # Convertir a array de requests para /api/batch
+          root = {
+            "requests": this.map_each(item -> {
+              "method": "POST",
+              "url": "/api/collections/" + env("COLLECTION") + "/records",
+              "body": item
+            })
+          }
 
-# =========================
+# ================================
 # UNIT TESTS
-# =========================
-
+# ================================
 tests:
-  - name: "Conversion exacta y mapeo completo sin pérdida"
-    target_processors: "/pipeline/processors"
+  - name: "Convert ingestion_timestamp to time"
+    target_processors: ["pipeline.processors.0"] 
     input_batch:
       - json_content:
-          device: "AGV-01"
-          temperature_c: 25
-          battery: 87.5
-          status: "MOVING"
-
-      - json_content:
-          device: "AGV-02"
-          temperature_c: 30
-          battery: 92.0
-          status: "IDLE"
-
+          sensor: "j1d6qnd79xcmkus"
+          value: 94
+          ingestion_timestamp: "2026-02-27T08:30:13.063626Z"
+          temp_c: 94.0
     output_batches:
-      - 
-        - json_equals:
-            device: "AGV-01"
-            temperature_c: 25
-            battery: 87.5
-            status: "MOVING"
-            temperature_f: 45.0  # 25*1.8+32
-            device_id: "AGV-01"
-            original_value: 25
-        - json_equals:
-            device: "AGV-02"
-            temperature_c: 30
-            battery: 92.0
-            status: "IDLE"
-            temperature_f: 86.0  # 30*1.8+32
-            device_id: "AGV-02"
-            original_value: 30
+      - - json_equals:
+            sensor: "j1d6qnd79xcmkus"
+            time: "2026-02-27 08:30:13.063Z"
+            value: 94.0
+
+  - name: "Use value if temp_c missing"
+    target_processors: ["pipeline.processors.0"]
+    input_batch:
+      - json_content:
+          sensor: "y4seae4svqzln3k"
+          value: 2
+          ingestion_timestamp: "2026-02-27T08:30:14.140037Z"
+    output_batches:
+      - - json_equals:
+            sensor: "y4seae4svqzln3k"
+            time: "2026-02-27 08:30:14.140Z"
+            value: 2.0

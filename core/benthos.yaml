@@ -9,7 +9,7 @@
 # }
 
 input:
-  stdin: {}  # Python le pasa los registros vía stdin
+  stdin: {}  # Python send records via stdin{}
 
 pipeline:
   processors:

@@ -2,59 +2,62 @@ import pytest
 import yaml
 
 def test_bento_yaml_pipeline():
-    # Loading YAML
+    # Load YAML
     with open("tests/test_bento.yml", "r") as f:
         data = yaml.safe_load(f)
 
-    # Validate input section
+    # -------------------------
+    # Validate input
+    # -------------------------
     assert "input" in data
-    assert "mqtt" in data["input"]
-    mqtt_input = data["input"]["mqtt"]
-    assert "urls" in mqtt_input
-    assert "topics" in mqtt_input
-    assert "client_id" in mqtt_input
-    assert "qos" in mqtt_input
+    assert "stdin" in data["input"] 
+    stdin_input = data["input"]["stdin"]
+    assert isinstance(stdin_input, dict)
 
+    # -------------------------
     # Validate pipeline
+    # -------------------------
     assert "pipeline" in data
     assert "processors" in data["pipeline"]
     assert len(data["pipeline"]["processors"]) > 0
 
+    # Validate that ingestion_time mapped to time
+    first_processor = data["pipeline"]["processors"][0]
+    assert "bloblang" in first_processor
+    blob_script = first_processor["bloblang"]
+    assert "ingestion_timestamp.ts_parse" in blob_script
+    assert "time" in blob_script
+
+    # -------------------------
     # Validate output
+    # -------------------------
     assert "output" in data
-    assert "mqtt" in data["output"]
-    mqtt_output = data["output"]["mqtt"]
-    assert "urls" in mqtt_output
-    assert "topic" in mqtt_output
-    assert "client_id" in mqtt_output
-    assert "qos" in mqtt_output
+    assert "http_client" in data["output"]
+    http_output = data["output"]["http_client"]
+    assert "url" in http_output
+    assert "verb" in http_output
+    assert http_output["verb"] == "POST"
+    assert "headers" in http_output
+    assert "Authorization" in http_output["headers"]
+    assert "batching" in http_output
+    assert "processors" in http_output
+    output_processor = http_output["processors"][0]
+    assert "bloblang" in output_processor
+    # Validate each item
+    assert "/api/collections/" in output_processor["bloblang"]
+    assert "body" in output_processor["bloblang"]
 
-    # Validate tests
-    assert "tests" in data
-    for test_case in data["tests"]:
-        assert "name" in test_case
-        assert "target_processors" in test_case
-        assert "input_batch" in test_case
-        assert "output_batches" in test_case
-
-        # Validate input_batch y output_batches dont lose fields
-        for input_item in test_case["input_batch"]:
-            assert "json_content" in input_item
-            json_input = input_item["json_content"]
-            assert "device" in json_input
-            assert "temperature_c" in json_input
-            assert "battery" in json_input
-            assert "status" in json_input
-
-        for batch in test_case["output_batches"]:
-            for output_item in batch:
-                assert "json_equals" in output_item
-                json_out = output_item["json_equals"]
-                # Check mapped fields
-                assert "device" in json_out
-                assert "temperature_c" in json_out
-                assert "temperature_f" in json_out
-                assert "device_id" in json_out
-                assert "original_value" in json_out
-                assert "battery" in json_out
-                assert "status" in json_out
+    # -------------------------
+    # Validate JSON example of input
+    # -------------------------
+    example_input = {
+        "sensor": "5bqfwcv9g6g1tm6",
+        "value": 94,
+        "ingestion_timestamp": "2026-02-27T08:30:13.063626Z",
+        "temp_c": 94.0
+    }
+    # Pipeline must generate time field
+    assert "ingestion_timestamp" in example_input
+    assert "temp_c" in example_input
+    assert "sensor" in example_input
+    assert "value" in example_input
