@@ -10,21 +10,31 @@
 
 `-> \core`
 
+'-> \data`
+
 `-> \mqtt`
+
+`-> \scripts`
 
 `-> \tests`
 
 `.env`
 
+`.env.example`
+
 `Dockerfile`
 
-`bentofile.yaml`
-
 `docker-compose.yml`
+
+`entrypoint.sh`
 
 `readme.md`
 
 `requirements.txt`
+
+`restart-docker.bat`
+
+`topic_errors.bat`
 
 ## Docker instalation
 
@@ -35,7 +45,11 @@ docker compose build --no-cache
 docker compose up
 ```
 
+- ***If youre in windows just run restart-docker.bat***
+
 ## Example of use:
+
+**See the readme located in scripts folder**
 
 - ***To use this project first run the Docker instalation, you will see the first test passed. now you need to run the Pocketbase db. Run the `send_random_mqtt.py` to see how readings records are created.***
 ```bash
@@ -45,7 +59,7 @@ python send_random_mqtt.py
 - ***To make a simulation run `obtener_token.py` to obtain the token of your _superuser. Paste it in the config variable of Script.go at the top of the file and run the script with:***
 ```bash
 go run Script.go
-``` 
+```
 
 ## Principal classes:
 
