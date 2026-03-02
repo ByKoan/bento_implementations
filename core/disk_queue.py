@@ -67,3 +67,17 @@ class DiskQueue:
 
     def clear(self):
         open(self.file_path, "w").close()
+
+    # ===============================
+    # EXISTS (FILTER)
+    # ===============================
+
+    # DISK QUEUE: Método para verificar duplicados
+    def exists(self, message_id):
+        if not message_id:
+            return False
+        # Buscar en todos los registros actuales
+        for record in self.load_all():
+            if record.get("message_id") == message_id:
+                return True
+        return False
