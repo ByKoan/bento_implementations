@@ -83,3 +83,5 @@ go run Script.go
 
 - ***MQTT Listener module that connects to the MQTT broker, subscribes to the topic and listens for incoming messages from the devices.
 When a message is received, it is parsed, enriched and sent to the batch writer for further processing and storage in the database. If there is an error in the payload or topic, the original message is sent to the errors topic with a reason for the failure.***
+
+- ***With topic_errors.bat you can connect to the topic to listen when a packet fails in the process to upload to db***
