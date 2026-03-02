@@ -16,7 +16,7 @@ if not TEMP_ID or not BATTERY_ID or not STATUS_ID:
 
 BROKER = "host.docker.internal"
 PORT = 1883
-TOTAL_MESSAGES = 21  # para pruebas rápidas
+TOTAL_MESSAGES = 21
 
 TEMP_TOPIC = f"devices/{TEMP_ID}/readings"
 BATTERY_TOPIC = f"devices/{BATTERY_ID}/readings"
@@ -30,7 +30,7 @@ moving_ticks = 0
 ticks_per_moving = 5
 
 for i in range(TOTAL_MESSAGES):
-    # --- Temperatura ---
+    # --- Temperature ---
     temp = random.randint(60, 100)
     payload_temp = json.dumps({"sensor": TEMP_ID, "value": temp})
     subprocess.run([
@@ -44,7 +44,7 @@ for i in range(TOTAL_MESSAGES):
     ])
     print(f"[{i+1}] Temperatura -> {temp}")
 
-    # --- Batería ---
+    # --- Battery ---
     battery -= battery_step
     if battery < 0: battery = 0
     payload_batt = json.dumps({"sensor": BATTERY_ID, "value": round(battery, 2)})
@@ -59,8 +59,8 @@ for i in range(TOTAL_MESSAGES):
     ])
     print(f"[{i+1}] Batería -> {battery:.2f}")
 
-    # --- Estado ---
-    if battery < 90:
+    # --- Status ---
+    if battery < 20:
         status = 3
         moving_ticks = 0
     else:
