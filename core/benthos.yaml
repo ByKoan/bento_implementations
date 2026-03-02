@@ -1,7 +1,7 @@
 # /core/benthos.yaml - compatible con v4.11.0
 input:
   stdin:
-    codec: lines  # cada línea es un JSON
+    codec: lines 
 
 pipeline:
   processors:
@@ -28,4 +28,4 @@ logger:
   level: INFO
 
 http:
-  address: "0.0.0.0:0"  # evita conflictos de puerto
+  address: "0.0.0.0:0"
