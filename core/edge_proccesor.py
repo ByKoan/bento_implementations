@@ -1,101 +1,118 @@
 import logging
+import dotenv
+import os
+import datetime
 from core.utils import build_ingestion_metadata
-from core.batch_writer import COLLECTION_READINGS, COLLECTION_URGENT
+
+dotenv.load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-BATTERY_THRESHOLD = 15
-TEMP_THRESHOLD = 75
+BATTERY_MINIMUM_INVALID = int(os.getenv("BATTERY_MINIMUM_INVALID"))
+BATTERY_MAXIMUM_INVALID = int(os.getenv("BATTERY_MAXIMUM_INVALID"))
+TEMP_MIMIMUM_INVALID = int(os.getenv("TEMP_MIMIMUM_INVALID"))
+TEMP_MAXIMUM_INVALID = int(os.getenv("TEMP_MAXIMUM_INVALID"))
 
+BATTERY_THRESHOLD = int(os.getenv("BATTERY_THRESHOLD"))
+TEMP_THRESHOLD = int(os.getenv("TEMP_THRESHOLD"))
 
 class EdgeProcessor:
-    def __init__(self, batch_writer):
-        self.batch_writer = batch_writer
+    def __init__(self):
+        pass
 
     def process_reading(self, reading: dict, sensor_type: str, sensor_id: str, agv_id: str):
+
         value = reading.get("value")
 
         if value is None:
             logger.warning(f"Sensor {sensor_id} envió valor nulo")
             return None
 
-        # -----------------------------
-        # VALORES IMPOSIBLES → URGENT
-        # -----------------------------
-        if sensor_type == "battery" and (value < 0 or value > 100):
-            alert_msg = f"Batería inválida: {value}"
+        alerts = []
+
+        # =====================================================
+        # Invalid values
+        # =====================================================
+        if sensor_type == "battery" and (value <= BATTERY_MINIMUM_INVALID or value >= BATTERY_MAXIMUM_INVALID):
             alert = {
                 **build_ingestion_metadata(),
                 "agv": agv_id,
                 "sensor": sensor_id,
                 "type": "battery_invalid",
-                "value": alert_msg,
+                "value": f"Batería inválida: {value}",
                 "timestamp": reading.get("timestamp")
             }
 
-            self.batch_writer.add(alert, sensor_id, collection=COLLECTION_URGENT)
-            logger.warning(f"🚨 Enviado a URGENT: {alert_msg}")
-            return None
+            logger.warning(f"Battery inválida detectada: {value}")
 
-        if sensor_type == "temperature" and (value < -10 or value > 120):
-            alert_msg = f"Temperatura inválida: {value}"
+            return {
+                "normal_record": None,
+                "alerts": [alert]
+            }
+
+        if sensor_type == "temperature" and (value <= TEMP_MIMIMUM_INVALID or value >= TEMP_MAXIMUM_INVALID):
             alert = {
                 **build_ingestion_metadata(),
                 "agv": agv_id,
                 "sensor": sensor_id,
                 "type": "temperature_invalid",
-                "value": alert_msg,
+                "value": f"Temperatura inválida: {value}",
                 "timestamp": reading.get("timestamp")
             }
 
-            self.batch_writer.add(alert, sensor_id, collection=COLLECTION_URGENT)
-            logger.warning(f"🚨 Enviado a URGENT: {alert_msg}")
-            return None
+            logger.warning(f"Temperatura inválida detectada: {value}")
 
-        # -----------------------------
-        # ALERTAS NORMALES → URGENT
-        # -----------------------------
+            return {
+                "normal_record": None,
+                "alerts": [alert]
+            }
+
+        # =====================================================
+        # Normal alerts
+        # =====================================================
         if sensor_type == "battery" and value < BATTERY_THRESHOLD:
-            alert_msg = f"Batería baja: {value}%"
-            alert = {
+            alerts.append({
                 **build_ingestion_metadata(),
                 "agv": agv_id,
                 "sensor": sensor_id,
                 "type": "battery_low",
-                "value": alert_msg,
+                "value": f"Batería baja: {value}%",
                 "timestamp": reading.get("timestamp")
-            }
-
-            self.batch_writer.add(alert, sensor_id, collection=COLLECTION_URGENT)
-            logger.info(f"⚠️ Enviado a URGENT: {alert_msg}")
+            })
 
         if sensor_type == "temperature" and value > TEMP_THRESHOLD:
-            alert_msg = f"Sobrecalentamiento: {value}°C"
-            alert = {
+            alerts.append({
                 **build_ingestion_metadata(),
                 "agv": agv_id,
                 "sensor": sensor_id,
                 "type": "overheat",
-                "value": alert_msg,
+                "value": f"Sobrecalentamiento: {value}°C",
                 "timestamp": reading.get("timestamp")
-            }
+            })
 
-            self.batch_writer.add(alert, sensor_id, collection=COLLECTION_URGENT)
-            logger.warning(f"🔥 Enviado a URGENT: {alert_msg}")
+        # ============================
+        # Normal record
+        # ============================
+        ts_str = reading.get("timestamp")
+        try:
+            if ts_str:
+                timestamp = datetime.datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            else:
+                timestamp = datetime.datetime.utcnow()
+        except Exception:
+            timestamp = datetime.datetime.utcnow()
 
-        # -----------------------------
-        # LECTURA NORMAL → READINGS
-        # -----------------------------
         normal_record = {
             **build_ingestion_metadata(),
             "agv": agv_id,
             "sensor": sensor_id,
             "type": sensor_type,
             "value": value,
-            "timestamp": reading.get("timestamp")
+            "time": timestamp.isoformat(),  # ✅ string ISO compatible con date
+            # "timestamp" no es necesario si "time" es suficiente
         }
 
-        self.batch_writer.add(normal_record, sensor_id, collection=COLLECTION_READINGS)
-        logger.info(f"✅ Enviado a READINGS: {value}")
-
-        return normal_record
+        return {
+            "normal_record": normal_record,
+            "alerts": alerts
+        }

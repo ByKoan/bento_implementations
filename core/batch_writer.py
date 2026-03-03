@@ -12,16 +12,16 @@ from core.disk_queue import DiskQueue
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-COLLECTION_READINGS = os.getenv("COLLECTION_READINGS", "readings")
-COLLECTION_URGENT = os.getenv("COLLECTION_URGENT", "urgent_alerts")
+COLLECTION_READINGS = os.getenv("COLLECTION_READINGS")
+COLLECTION_URGENT = os.getenv("COLLECTION_URGENT")
 MQTT_ERROR_TOPIC = os.getenv("MQTT_ERROR_TOPIC")
 
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", 10))
-FLUSH_INTERVAL = int(os.getenv("FLUSH_INTERVAL", 5))
-MAX_RETRIES = int(os.getenv("MAX_RETRIES", 5))
-BASE_DELAY = float(os.getenv("BASE_DELAY", 0.5))
-MAX_DELAY = float(os.getenv("MAX_DELAY", 5))
-QUEUE_FILE = os.getenv("QUEUE_FILE", "batch_queue.json")
+BATCH_SIZE = int(os.getenv("BATCH_SIZE"))
+FLUSH_INTERVAL = int(os.getenv("FLUSH_INTERVAL"))
+MAX_RETRIES = int(os.getenv("MAX_RETRIES"))
+BASE_DELAY = float(os.getenv("BASE_DELAY"))
+MAX_DELAY = float(os.getenv("MAX_DELAY"))
+QUEUE_FILE = os.getenv("QUEUE_FILE")
 
 
 class BatchWriter:

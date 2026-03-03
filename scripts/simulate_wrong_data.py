@@ -6,11 +6,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
-MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+MQTT_BROKER = os.getenv("MQTT_BROKER_LOCAL")
+MQTT_PORT = int(os.getenv("MQTT_PORT"))
 
-BATTERY_ID = os.getenv("BATTERY_ID", "bat_001")
-TEMP_ID = os.getenv("TEMP_ID", "temp_001")
+BATTERY_ID = os.getenv("BATTERY_ID")
+TEMP_ID = os.getenv("TEMP_ID")
 
 TOPIC_TEMPLATE = "devices/{}/readings"
 

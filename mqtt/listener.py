@@ -19,16 +19,19 @@ MQTT_BROKER = os.getenv("MQTT_BROKER")
 MQTT_PORT = int(os.getenv("MQTT_PORT"))
 MQTT_TOPIC = os.getenv("MQTT_TOPIC")
 
-BATTERY_ID = os.getenv("BATTERY_ID")  # Sensor de batería
-TEMP_ID = os.getenv("TEMP_ID")        # Sensor de temperatura
+BATTERY_ID = os.getenv("BATTERY_ID")
+TEMP_ID = os.getenv("TEMP_ID")
+
+COLLECTION_READINGS = os.getenv("COLLECTION_READINGS")
+COLLECTION_URGENT = os.getenv("COLLECTION_URGENT")
 
 logger.info(f"BATTERY_ID cargado: {BATTERY_ID}")
 logger.info(f"TEMP_ID cargado: {TEMP_ID}")
 
 # ===============================
-# EDGE PROCESSOR
+# EDGE PROCESSOR (NO escribe en DB)
 # ===============================
-edge_processor = EdgeProcessor(batch_writer)
+edge_processor = EdgeProcessor()
 
 # ===============================
 # CALLBACKS MQTT
@@ -50,20 +53,20 @@ def on_message(client, userdata, msg):
             logger.warning(f"Mensaje MQTT incompleto: {payload}")
             return
 
+        # Timestamp automático
         if "timestamp" not in payload:
             payload["timestamp"] = datetime.datetime.utcnow().isoformat() + "Z"
 
-        # Agregar message_id si no viene
+        # message_id automático
         if "message_id" not in payload:
             payload["message_id"] = str(uuid.uuid4())
 
         sensor_id = payload["sensor"]
         agv_id = payload.get("agv_id", "unknown")
 
-        collection_readings = os.getenv("COLLECTION_READINGS", "readings")
-        collection_urgent = os.getenv("COLLECTION_URGENT", "urgent_alerts")
-
+        # ===============================
         # Determinar tipo de sensor
+        # ===============================
         if sensor_id == BATTERY_ID:
             sensor_type = "battery"
         elif sensor_id == TEMP_ID:
@@ -71,48 +74,38 @@ def on_message(client, userdata, msg):
         else:
             sensor_type = "unknown"
 
+        logger.info(f"Procesando sensor {sensor_id} tipo {sensor_type}")
+
+        # ===============================
         # Procesar lectura
-        processed_payload = edge_processor.process_reading(
+        # ===============================
+        result = edge_processor.process_reading(
             payload,
             sensor_type=sensor_type,
             sensor_id=sensor_id,
             agv_id=agv_id
         )
 
-        if not processed_payload:
+        if not result:
             logger.warning(f"EdgeProcessor devolvió None para: {payload}")
             return
 
-        # ===============================
-        # FILTRO DE URGENCIAS E INVALIDOS
-        # ===============================
-        value = processed_payload.get("value")
-        is_invalid = False
-        is_urgent = False
-
-        if sensor_type == "battery":
-            if value is None or not (0 <= value <= 100):
-                is_invalid = True
-            elif value < 20:
-                is_urgent = True
-
-        elif sensor_type == "temperature":
-            if value is None or not (-50 <= value <= 100):
-                is_invalid = True
-            elif value > 75:
-                is_urgent = True
+        normal_record = result.get("normal_record")
+        alerts = result.get("alerts", [])
 
         # ===============================
-        # DECISIÓN DE COLECCIÓN
+        # Guardar alertas
         # ===============================
-        if is_urgent or is_invalid:
-            batch_writer.add(processed_payload, sensor_id, collection=collection_urgent)
-            logger.warning(f"🔥 Enviado a URGENT/INVALID: {processed_payload}")
-            return  # <- clave: no sigue a readings
+        for alert in alerts:
+            batch_writer.add(alert, sensor_id, collection=COLLECTION_URGENT)
+            logger.warning(f"🚨 Enviado a URGENT: {alert}")
 
-        # Solo envía a readings si no es urgente ni inválido
-        batch_writer.add(processed_payload, sensor_id, collection=collection_readings)
-        logger.info(f"✅ Enviado a READINGS: {processed_payload}")
+        # ===============================
+        # Guardar lectura normal SOLO si existe
+        # ===============================
+        if normal_record:
+            batch_writer.add(normal_record, sensor_id, collection=COLLECTION_READINGS)
+            logger.info(f"✅ Enviado a READINGS: {normal_record}")
 
     except Exception as e:
         logger.error(f"Error procesando mensaje MQTT: {e}")
