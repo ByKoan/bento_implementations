@@ -10,7 +10,7 @@
 
 `-> \core`
 
-'-> \data`
+`-> \data`
 
 `-> \mqtt`
 

@@ -16,20 +16,23 @@ logging.basicConfig(level=logging.INFO)
 # ENV VARIABLES
 # ===============================
 MQTT_BROKER = os.getenv("MQTT_BROKER")
-MQTT_PORT = int(os.getenv("MQTT_PORT"))
-MQTT_TOPIC = os.getenv("MQTT_TOPIC")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+MQTT_TOPIC = os.getenv("MQTT_TOPIC", "sensors/#")
+MQTT_PUBLISH_TOPIC_ALERTS = os.getenv("MQTT_PUBLISH_TOPIC_ALERTS")
 
 BATTERY_ID = os.getenv("BATTERY_ID")
 TEMP_ID = os.getenv("TEMP_ID")
+STATUS_ID = os.getenv("STATUS_ID")
+HAS_PALLET_ID = os.getenv("HAS_PALLET_ID")
 
-COLLECTION_READINGS = os.getenv("COLLECTION_READINGS")
-COLLECTION_URGENT = os.getenv("COLLECTION_URGENT")
+COLLECTION_READINGS = os.getenv("COLLECTION_READINGS", "readings")
+COLLECTION_URGENT = os.getenv("COLLECTION_URGENT", "alerts")
 
 logger.info(f"BATTERY_ID cargado: {BATTERY_ID}")
 logger.info(f"TEMP_ID cargado: {TEMP_ID}")
 
 # ===============================
-# EDGE PROCESSOR (NO escribe en DB)
+# EDGE PROCESSOR
 # ===============================
 edge_processor = EdgeProcessor()
 
@@ -43,7 +46,6 @@ def on_connect(client, userdata, flags, rc):
         logger.info(f"Suscrito a topic: {MQTT_TOPIC}")
     else:
         logger.error(f"Error al conectar a MQTT broker: {rc}")
-
 
 def on_message(client, userdata, msg):
     try:
@@ -71,6 +73,10 @@ def on_message(client, userdata, msg):
             sensor_type = "battery"
         elif sensor_id == TEMP_ID:
             sensor_type = "temperature"
+        elif sensor_id == STATUS_ID:
+            sensor_type = "status"
+        elif sensor_id == HAS_PALLET_ID:
+            sensor_type = "has_pallet"
         else:
             sensor_type = "unknown"
 
@@ -94,22 +100,39 @@ def on_message(client, userdata, msg):
         alerts = result.get("alerts", [])
 
         # ===============================
-        # Guardar alertas
+        # Guardar alertas (invalidas y normales)
         # ===============================
         for alert in alerts:
+            # Convertir timestamp a string ISO si es datetime
+            if isinstance(alert.get("timestamp"), datetime.datetime):
+                alert["timestamp"] = alert["timestamp"].isoformat()
+
             batch_writer.add(alert, sensor_id, collection=COLLECTION_URGENT)
-            logger.warning(f"🚨 Enviado a URGENT: {alert}")
+            logger.warning(f"Enviado a URGENT: {alert}")
+
+            # ===============================
+            # Publicar alertas normales en MQTT
+            # Solo si no es inválida
+            # ===============================
+            if alert["type"] in ("battery_low", "overheat"):
+                try:
+                    client.publish(MQTT_PUBLISH_TOPIC_ALERTS, json.dumps(alert))
+                    logger.info(f"Publicado en topic {MQTT_PUBLISH_TOPIC_ALERTS}: {alert}")
+                except Exception as e:
+                    logger.error(f"Error publicando alerta MQTT: {e}")
 
         # ===============================
-        # Guardar lectura normal SOLO si existe
+        # Guardar lectura normal SOLO si existe y es válida
         # ===============================
         if normal_record:
+            # Convertir time a string ISO
+            if isinstance(normal_record.get("time"), datetime.datetime):
+                normal_record["time"] = normal_record["time"].isoformat()
             batch_writer.add(normal_record, sensor_id, collection=COLLECTION_READINGS)
-            logger.info(f"✅ Enviado a READINGS: {normal_record}")
+            logger.info(f"Enviado a READINGS: {normal_record}")
 
     except Exception as e:
         logger.error(f"Error procesando mensaje MQTT: {e}")
-
 
 # ===============================
 # START LISTENER

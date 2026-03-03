@@ -8,20 +8,20 @@ dotenv.load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-BATTERY_MINIMUM_INVALID = int(os.getenv("BATTERY_MINIMUM_INVALID"))
-BATTERY_MAXIMUM_INVALID = int(os.getenv("BATTERY_MAXIMUM_INVALID"))
-TEMP_MIMIMUM_INVALID = int(os.getenv("TEMP_MIMIMUM_INVALID"))
-TEMP_MAXIMUM_INVALID = int(os.getenv("TEMP_MAXIMUM_INVALID"))
+# Configuración de límites
+BATTERY_MINIMUM_INVALID = int(os.getenv("BATTERY_MINIMUM_INVALID", 0))
+BATTERY_MAXIMUM_INVALID = int(os.getenv("BATTERY_MAXIMUM_INVALID", 100))
+TEMP_MIMIMUM_INVALID = int(os.getenv("TEMP_MIMIMUM_INVALID", -50))
+TEMP_MAXIMUM_INVALID = int(os.getenv("TEMP_MAXIMUM_INVALID", 150))
 
-BATTERY_THRESHOLD = int(os.getenv("BATTERY_THRESHOLD"))
-TEMP_THRESHOLD = int(os.getenv("TEMP_THRESHOLD"))
+BATTERY_THRESHOLD = int(os.getenv("BATTERY_THRESHOLD", 15))
+TEMP_THRESHOLD = int(os.getenv("TEMP_THRESHOLD", 75))
 
 class EdgeProcessor:
     def __init__(self):
         pass
 
     def process_reading(self, reading: dict, sensor_type: str, sensor_id: str, agv_id: str):
-
         value = reading.get("value")
 
         if value is None:
@@ -31,8 +31,9 @@ class EdgeProcessor:
         alerts = []
 
         # =====================================================
-        # Invalid values
+        # Validaciones de valores inválidos
         # =====================================================
+        # Battery inválida
         if sensor_type == "battery" and (value <= BATTERY_MINIMUM_INVALID or value >= BATTERY_MAXIMUM_INVALID):
             alert = {
                 **build_ingestion_metadata(),
@@ -42,14 +43,10 @@ class EdgeProcessor:
                 "value": f"Batería inválida: {value}",
                 "timestamp": reading.get("timestamp")
             }
-
             logger.warning(f"Battery inválida detectada: {value}")
+            return {"normal_record": None, "alerts": [alert]}
 
-            return {
-                "normal_record": None,
-                "alerts": [alert]
-            }
-
+        # Temperature inválida
         if sensor_type == "temperature" and (value <= TEMP_MIMIMUM_INVALID or value >= TEMP_MAXIMUM_INVALID):
             alert = {
                 **build_ingestion_metadata(),
@@ -59,16 +56,37 @@ class EdgeProcessor:
                 "value": f"Temperatura inválida: {value}",
                 "timestamp": reading.get("timestamp")
             }
-
             logger.warning(f"Temperatura inválida detectada: {value}")
+            return {"normal_record": None, "alerts": [alert]}
 
-            return {
-                "normal_record": None,
-                "alerts": [alert]
+        # HasPallet inválido (solo 0 o 1)
+        if sensor_type == "has_pallet" and value not in (0, 1):
+            alert = {
+                **build_ingestion_metadata(),
+                "agv": agv_id,
+                "sensor": sensor_id,
+                "type": "has_pallet_invalid",
+                "value": f"HasPallet inválido: {value}",
+                "timestamp": reading.get("timestamp")
             }
+            logger.warning(f"HasPallet inválido detectado: {value}")
+            return {"normal_record": None, "alerts": [alert]}
+
+        # Status inválido (solo 0,1,2,3)
+        if sensor_type == "status" and value not in (0, 1, 2, 3):
+            alert = {
+                **build_ingestion_metadata(),
+                "agv": agv_id,
+                "sensor": sensor_id,
+                "type": "status_invalid",
+                "value": f"Status inválido: {value}",
+                "timestamp": reading.get("timestamp")
+            }
+            logger.warning(f"Status inválido detectado: {value}")
+            return {"normal_record": None, "alerts": [alert]}
 
         # =====================================================
-        # Normal alerts
+        # Alertas normales
         # =====================================================
         if sensor_type == "battery" and value < BATTERY_THRESHOLD:
             alerts.append({
@@ -90,15 +108,12 @@ class EdgeProcessor:
                 "timestamp": reading.get("timestamp")
             })
 
-        # ============================
-        # Normal record
-        # ============================
+        # =====================================================
+        # Registro normal
+        # =====================================================
         ts_str = reading.get("timestamp")
         try:
-            if ts_str:
-                timestamp = datetime.datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-            else:
-                timestamp = datetime.datetime.utcnow()
+            timestamp = datetime.datetime.fromisoformat(ts_str.replace("Z", "+00:00")) if ts_str else datetime.datetime.utcnow()
         except Exception:
             timestamp = datetime.datetime.utcnow()
 
@@ -108,11 +123,7 @@ class EdgeProcessor:
             "sensor": sensor_id,
             "type": sensor_type,
             "value": value,
-            "time": timestamp.isoformat(),  # ✅ string ISO compatible con date
-            # "timestamp" no es necesario si "time" es suficiente
+            "time": timestamp.isoformat() 
         }
 
-        return {
-            "normal_record": normal_record,
-            "alerts": alerts
-        }
+        return {"normal_record": normal_record, "alerts": alerts}
