@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"os"
@@ -20,7 +21,7 @@ import (
 
 const (
 	baseURL       = "http://127.0.0.1:8090/api/collections" // URL for upload the content
-	adminToken    = "" // Replaze this with your super user token 
+	adminToken    = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb2xsZWN0aW9uSWQiOiJwYmNfMzE0MjYzNTgyMyIsImV4cCI6MTc3MjYzMDk0MSwiaWQiOiI1dXI3ZjFidjhkaHdjeTciLCJyZWZyZXNoYWJsZSI6dHJ1ZSwidHlwZSI6ImF1dGgifQ.yIQJImhsO1uiqCvcjpFKC5BzDlXp7xEwi7-HVdyrTR8" // Replaze this with your super user token 
 	emailAdmin    = "admin@example.com" // Email for the new user that will be created
 	password      = "Admin123!"  // Password for the new user that will be created
 	updatePeriod  = 5 * time.Second // reading transmission interval
@@ -282,12 +283,15 @@ func main() {
 				}
 			}
 
+			temperatureRounded := math.Round(agv.Temperature*10) / 10
+			batteryRounded := math.Round(agv.Battery*10) / 10
+			
 			// Generate readings 
 			readings := []Reading{
-				{Sensor: agv.SensorIDs["temperature"], Value: agv.Temperature, HasPallet: agv.HasPallet, Status: agv.Status, Time: time.Now().UTC().Format(time.RFC3339), TempC: agv.Temperature},
-				{Sensor: agv.SensorIDs["battery"], Value: agv.Battery, HasPallet: agv.HasPallet, Status: agv.Status, Time: time.Now().UTC().Format(time.RFC3339), TempC: agv.Temperature},
-				{Sensor: agv.SensorIDs["has_pallet"], Value: float64(agv.HasPallet), HasPallet: agv.HasPallet, Status: agv.Status, Time: time.Now().UTC().Format(time.RFC3339), TempC: agv.Temperature},
-				{Sensor: agv.SensorIDs["status"], Value: float64(agv.Status), HasPallet: agv.HasPallet, Status: agv.Status, Time: time.Now().UTC().Format(time.RFC3339), TempC: agv.Temperature},
+				{Sensor: agv.SensorIDs["temperature"], Value: temperatureRounded, HasPallet: agv.HasPallet, Status: agv.Status, Time: time.Now().UTC().Format(time.RFC3339), TempC: temperatureRounded},
+				{Sensor: agv.SensorIDs["battery"], Value: batteryRounded, HasPallet: agv.HasPallet, Status: agv.Status, Time: time.Now().UTC().Format(time.RFC3339), TempC: temperatureRounded},
+				{Sensor: agv.SensorIDs["has_pallet"], Value: float64(agv.HasPallet), HasPallet: agv.HasPallet, Status: agv.Status, Time: time.Now().UTC().Format(time.RFC3339), TempC: temperatureRounded},
+				{Sensor: agv.SensorIDs["status"], Value: float64(agv.Status), HasPallet: agv.HasPallet, Status: agv.Status, Time: time.Now().UTC().Format(time.RFC3339), TempC: temperatureRounded},
 			}
 
 			// Send to stdout for benthos
