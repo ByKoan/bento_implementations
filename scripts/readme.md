@@ -10,8 +10,9 @@
 
 - **How to run it:**
 
-- ***First you need to run the `obtener_token.py` script and paste the super_user token in the variable at the top of the script. Then, since we are running the service in a container, we will launch the following command to run the script***
+- ***Launch the following command to run the script***
 
 ```bash
+# To run this script you need to remove the create rule on readings collection to allow all users create record here
 go run script.go | docker exec -i bento_service benthos -c /core/benthos.yaml
 ``` 
