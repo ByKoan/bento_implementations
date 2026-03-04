@@ -1,29 +1,37 @@
-import logging
-import dotenv
+# core/edge_processor.py
 import os
+import logging
 import datetime
+import dotenv
 from core.utils import build_ingestion_metadata
 
 dotenv.load_dotenv()
-
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 # Configuración de límites
 BATTERY_MINIMUM_INVALID = int(os.getenv("BATTERY_MINIMUM_INVALID", 0))
 BATTERY_MAXIMUM_INVALID = int(os.getenv("BATTERY_MAXIMUM_INVALID", 100))
-TEMP_MIMIMUM_INVALID = int(os.getenv("TEMP_MIMIMUM_INVALID", -50))
+TEMP_MINIMUM_INVALID = int(os.getenv("TEMP_MINIMUM_INVALID", -50))
 TEMP_MAXIMUM_INVALID = int(os.getenv("TEMP_MAXIMUM_INVALID", 150))
 
 BATTERY_THRESHOLD = int(os.getenv("BATTERY_THRESHOLD", 15))
 TEMP_THRESHOLD = int(os.getenv("TEMP_THRESHOLD", 75))
 
+
 class EdgeProcessor:
+    """
+    Procesa cada lectura de sensor:
+    - Valida valores inválidos
+    - Genera alertas normales
+    - Construye normal_record
+    """
+
     def __init__(self):
         pass
 
     def process_reading(self, reading: dict, sensor_type: str, sensor_id: str, agv_id: str):
         value = reading.get("value")
-
         if value is None:
             logger.warning(f"Sensor {sensor_id} envió valor nulo")
             return None
@@ -33,7 +41,6 @@ class EdgeProcessor:
         # =====================================================
         # Validaciones de valores inválidos
         # =====================================================
-        # Battery inválida
         if sensor_type == "battery" and (value <= BATTERY_MINIMUM_INVALID or value >= BATTERY_MAXIMUM_INVALID):
             alert = {
                 **build_ingestion_metadata(),
@@ -46,8 +53,7 @@ class EdgeProcessor:
             logger.warning(f"Battery inválida detectada: {value}")
             return {"normal_record": None, "alerts": [alert]}
 
-        # Temperature inválida
-        if sensor_type == "temperature" and (value <= TEMP_MIMIMUM_INVALID or value >= TEMP_MAXIMUM_INVALID):
+        if sensor_type == "temperature" and (value <= TEMP_MINIMUM_INVALID or value >= TEMP_MAXIMUM_INVALID):
             alert = {
                 **build_ingestion_metadata(),
                 "agv": agv_id,
@@ -59,7 +65,6 @@ class EdgeProcessor:
             logger.warning(f"Temperatura inválida detectada: {value}")
             return {"normal_record": None, "alerts": [alert]}
 
-        # HasPallet inválido (solo 0 o 1)
         if sensor_type == "has_pallet" and value not in (0, 1):
             alert = {
                 **build_ingestion_metadata(),
@@ -72,7 +77,6 @@ class EdgeProcessor:
             logger.warning(f"HasPallet inválido detectado: {value}")
             return {"normal_record": None, "alerts": [alert]}
 
-        # Status inválido (solo 0,1,2,3)
         if sensor_type == "status" and value not in (0, 1, 2, 3):
             alert = {
                 **build_ingestion_metadata(),
@@ -109,7 +113,7 @@ class EdgeProcessor:
             })
 
         # =====================================================
-        # Registro normal
+        # Construir registro normal
         # =====================================================
         ts_str = reading.get("timestamp")
         try:
@@ -123,7 +127,9 @@ class EdgeProcessor:
             "sensor": sensor_id,
             "type": sensor_type,
             "value": value,
-            "time": timestamp.isoformat() 
+            "time": timestamp.isoformat(),
+            "message_id": reading.get("message_id"),
+            "_collection": "readings"
         }
 
         return {"normal_record": normal_record, "alerts": alerts}

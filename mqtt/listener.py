@@ -107,13 +107,12 @@ def on_message(client, userdata, msg):
             if isinstance(alert.get("timestamp"), datetime.datetime):
                 alert["timestamp"] = alert["timestamp"].isoformat()
 
-            batch_writer.add(alert, sensor_id, collection=COLLECTION_URGENT)
-            logger.warning(f"Enviado a URGENT: {alert}")
+        # ✅ Envía todo el dict que devuelve EdgeProcessor, sin envoltorios adicionales
+        if alerts or normal_record:
+            batch_writer.add({"normal_record": normal_record, "alerts": alerts})
 
-            # ===============================
-            # Publicar alertas normales en MQTT
-            # Solo si no es inválida
-            # ===============================
+        # Publicar alertas normales en MQTT (solo battery_low o overheat)
+        for alert in alerts:
             if alert["type"] in ("battery_low", "overheat"):
                 try:
                     client.publish(MQTT_PUBLISH_TOPIC_ALERTS, json.dumps(alert))
@@ -121,14 +120,13 @@ def on_message(client, userdata, msg):
                 except Exception as e:
                     logger.error(f"Error publicando alerta MQTT: {e}")
 
-        # ===============================
         # Guardar lectura normal SOLO si existe y es válida
-        # ===============================
         if normal_record:
             # Convertir time a string ISO
             if isinstance(normal_record.get("time"), datetime.datetime):
                 normal_record["time"] = normal_record["time"].isoformat()
-            batch_writer.add(normal_record, sensor_id, collection=COLLECTION_READINGS)
+
+            batch_writer.add({"normal_record": normal_record, "alerts": []})
             logger.info(f"Enviado a READINGS: {normal_record}")
 
     except Exception as e:

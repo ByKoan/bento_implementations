@@ -14,5 +14,5 @@
 
 ```bash
 # To run this script you need to remove the create rule on readings collection to allow all users create record here
-go run script.go | docker exec -i bento_service benthos -c /core/benthos.yaml
+go run script.go | docker exec -i benthos_binary benthos -c /core/benthos.yaml
 ``` 
