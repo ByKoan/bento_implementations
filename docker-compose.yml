@@ -60,7 +60,7 @@ services:
           memory: 512M
   
   benthos:
-    image: jeffail/benthos:latest  # <-- actualizamos a 5.x
+    image: jeffail/benthos:4.27.0
     container_name: benthos_binary
     volumes:
       - ./core/benthos.yaml:/benthos.yaml
@@ -71,6 +71,12 @@ services:
       - "4197:4197"
     networks:
       - backend
+
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 2048M
 
 
 networks:

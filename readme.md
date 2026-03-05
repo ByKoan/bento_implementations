@@ -69,7 +69,7 @@ docker compose up
 
 - ***If youre in windows just run restart-docker.bat***
 
-> As the DB is a template you need to modify some parts, you will need to activate the batch setting, create a collection called "`urgent_alerts`" and if you run the `script.go` grant access to create rule in collection "`readings`"
+> As the DB is a template you need to modify some parts, you will need to activate the batch setting, create a collection called "`urgent_alerts`" with the following fields: value (plain text), sensor (single relation with sensors collection) and time (date) and if you run the `script.go` grant access to create rule in collection "`readings`"
 
 ## Example of use:
 
