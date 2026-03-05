@@ -83,11 +83,13 @@ func sendBatchToBenthos(batch []Reading) {
 
     for _, r := range batch {
         if r.Collection == "urgent_alerts" {
-            // Only send 'value' with the descriptive text
-            payload = append(payload, map[string]interface{}{
-                "value": r.Message,
-            })
-        } else {
+			payload = append(payload, map[string]interface{}{
+				"_collection": r.Collection,
+				"value":       r.Message,
+				"sensor": 	   r.Sensor,
+				"time":        r.Time,
+			})
+		} else {
             // Normal readings
             payload = append(payload, map[string]interface{}{
                 "_collection": r.Collection,
@@ -99,11 +101,15 @@ func sendBatchToBenthos(batch []Reading) {
         }
     }
 
-    jsonData, err := json.Marshal(payload)
+    jsonData, err := json.Marshal(payload) // Here we transform the payload to JSON for benthos
     if err != nil {
         log.Println("Error serializando batch:", err)
         return
     }
+
+	fmt.Println("JSON enviado a Benthos:")
+	fmt.Println(string(jsonData))
+	fmt.Println("------")
 
     req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
     if err != nil {

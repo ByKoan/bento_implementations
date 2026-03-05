@@ -70,4 +70,11 @@ This is a minimum simulation only to test funcionalities***
 
 ### `script.go`:
 
-- ***This script will run a simulation, as if the project where in production. This script automatically create everything. Devices, locations, sensors (1 of every sensor (temperature, battery, status, has_pallet) for every device) and upload the data. For this script is important to grant access to create rule in the readings collection for everyone because if this isnt granted it cant upload the data and will have errors will running.*** 
+- ***You need to run this commands for get dependencies***
+
+```bash
+go mod init script.go
+go get github.com/google/uuid
+```
+
+- ***This script will run a simulation, as if the project where in production. This script automatically create everything. Devices, locations, sensors (1 of every sensor (temperature, battery, status, has_pallet) for every device) and upload the data. For this script is important to grant access to create rule in the readings collection for everyone because if this isnt granted it cant upload the data and will have errors will running.***
