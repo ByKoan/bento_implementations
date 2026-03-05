@@ -21,10 +21,10 @@ TEMP_THRESHOLD = int(os.getenv("TEMP_THRESHOLD", 75))
 
 class EdgeProcessor:
     """
-    Procesa cada lectura de sensor:
-    - Valida valores inválidos
-    - Genera alertas normales
-    - Construye normal_record
+    Procces every reading from sensor:
+    - Validate invalid values
+    - Generate normal alerts
+    - Build normal_record
     """
 
     def __init__(self):
@@ -39,7 +39,7 @@ class EdgeProcessor:
         alerts = []
 
         # =====================================================
-        # Validaciones de valores inválidos
+        # Invalid values validations
         # =====================================================
         if sensor_type == "battery" and (value <= BATTERY_MINIMUM_INVALID or value >= BATTERY_MAXIMUM_INVALID):
             alert = {
@@ -90,7 +90,7 @@ class EdgeProcessor:
             return {"normal_record": None, "alerts": [alert]}
 
         # =====================================================
-        # Alertas normales
+        # Normal alerts
         # =====================================================
         if sensor_type == "battery" and value < BATTERY_THRESHOLD:
             alerts.append({
@@ -113,7 +113,7 @@ class EdgeProcessor:
             })
 
         # =====================================================
-        # Construir registro normal
+        # Build normal records
         # =====================================================
         ts_str = reading.get("timestamp")
         try:

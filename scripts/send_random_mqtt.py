@@ -7,9 +7,9 @@ import dotenv
 
 dotenv.load_dotenv()
 
-# --- Configuración de Rutas ---
-# Usamos r"" para evitar problemas con las barras de Windows
-PATH_LOG = r"C:\Users\AIR\Desktop\bento_implementations\data\pending_readings.log"
+# --- Routes configuration ---
+# Use r if youre running this script in Win
+PATH_LOG = r""
 
 TEMP_ID = os.getenv("TEMP_ID")
 BATTERY_ID = os.getenv("BATTERY_ID")
@@ -22,14 +22,13 @@ BROKER = "host.docker.internal"
 PORT = 1883
 TOTAL_MESSAGES = 21
 
-# --- Función para contar líneas actuales ---
+# --- Function to detect all lines processed/uploaded to know how many records were uploaded ---
 def contar_lineas(ruta):
     if not os.path.exists(ruta):
         return 0
     with open(ruta, 'r', encoding='utf-8') as f:
         return sum(1 for _ in f)
 
-# Inicializamos el contador con lo que ya tenga el archivo
 contador_actual = contar_lineas(PATH_LOG)
 print(f"Líneas iniciales en el log: {contador_actual}")
 
@@ -48,9 +47,10 @@ for i in range(TOTAL_MESSAGES):
         "docker", "run", "--rm", "eclipse-mosquitto:2",
         "mosquitto_pub", "-h", BROKER, "-p", str(PORT),
         "-t", f"devices/{TEMP_ID}/readings", "-m", payload_temp
-    ], capture_output=True) # capture_output para no ensuciar la consola
+    ], capture_output=True)
     
     # Supongamos que cada mensaje enviado exitosamente cuenta como una inserción lógica
+    # Suppose every message sended successfully count like a logic insertion
     contador_actual += 1 
     print(f"[{i+1}] Temperatura -> {temp} | Total líneas: {contador_actual}")
 

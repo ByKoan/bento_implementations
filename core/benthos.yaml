@@ -8,11 +8,9 @@ input:
 
 pipeline:
   processors:
-    # 🔥 Divide el array en mensajes individuales
     - unarchive:
         format: json_array
 
-    # 🔥 Extrae la colección
     - mapping: |
         meta collection = this._collection
         root = this.without("_collection")

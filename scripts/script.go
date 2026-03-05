@@ -27,7 +27,7 @@ const (
 )
 
 // ===============================
-// DataStruct con el contenido de AGV
+// DataStruct with the content of the AGV
 // ===============================
 type AGV struct {
 	ID          string
@@ -40,7 +40,7 @@ type AGV struct {
 }
 
 // ===============================
-// Reading enviado a Benthos
+// Reading sended to benthos
 // ===============================
 type Reading struct {
 	MessageID  string  `json:"message_id"`
@@ -52,7 +52,7 @@ type Reading struct {
 }
 
 // ===============================
-// Ejecuta el script de Python y devuelve el token
+// Execute the python script and return the token
 // ===============================
 func getAdminToken() string {
 	cmd := exec.Command("python", "obtener_token.py")
@@ -74,7 +74,7 @@ func getAdminToken() string {
 }
 
 // ===============================
-// Envía un batch de lecturas a Benthos
+// Send a readings batch to benthos
 // ===============================
 func sendBatchToBenthos(batch []Reading) {
     url := "http://localhost:4197/ingest"
@@ -83,12 +83,12 @@ func sendBatchToBenthos(batch []Reading) {
 
     for _, r := range batch {
         if r.Collection == "urgent_alerts" {
-            // Solo enviar 'value' con el texto descriptivo
+            // Only send 'value' with the descriptive text
             payload = append(payload, map[string]interface{}{
                 "value": r.Message,
             })
         } else {
-            // Lecturas normales
+            // Normal readings
             payload = append(payload, map[string]interface{}{
                 "_collection": r.Collection,
                 "message_id":  r.MessageID,
@@ -127,7 +127,7 @@ func sendBatchToBenthos(batch []Reading) {
 }
 
 // ===============================
-// Helper para crear registros en PocketBase
+// Helper to create records on DB
 // ===============================
 func createRecord(collection string, data map[string]interface{}, token string) string {
 	url := fmt.Sprintf("%s/%s/records", baseURL, collection)
@@ -155,7 +155,7 @@ func createRecord(collection string, data map[string]interface{}, token string) 
 }
 
 // ===============================
-// Buscar usuario por email
+// Find user by mail
 // ===============================
 func getUserIDByEmail(email, token string) string {
 	url := fmt.Sprintf("%s/users/records?filter=email='%s'", baseURL, email)
@@ -182,7 +182,7 @@ func getUserIDByEmail(email, token string) string {
 }
 
 // ===============================
-// Generación de alertas según thresholds
+// Generate alerts according to thresholds 
 // ===============================
 func generateAlerts(agv *AGV) []Reading {
 	alerts := []Reading{}
@@ -191,7 +191,7 @@ func generateAlerts(agv *AGV) []Reading {
 	temperatureRounded := math.Round(agv.Temperature*10) / 10
 	batteryRounded := math.Round(agv.Battery*10) / 10
 
-	// Alerta de temperatura alta
+	// Overheat alert
 	if temperatureRounded > 32 {
 		alerts = append(alerts, Reading{
 			MessageID:  uuid.New().String(),
@@ -199,12 +199,11 @@ func generateAlerts(agv *AGV) []Reading {
 			Sensor:     agv.SensorIDs["temperature"],
 			Value:      temperatureRounded,
 			Time:       now,
-			// Campo texto descriptivo
 			Message:    fmt.Sprintf("Temperatura crítica: %.1f°C", temperatureRounded),
 		})
 	}
 
-	// Alerta de batería baja
+	// Low battery alert 
 	if batteryRounded < 20 {
 		alerts = append(alerts, Reading{
 			MessageID:  uuid.New().String(),
@@ -216,19 +215,7 @@ func generateAlerts(agv *AGV) []Reading {
 		})
 	}
 
-	// Alerta de pallet presente
-	if agv.HasPallet == 1 {
-		alerts = append(alerts, Reading{
-			MessageID:  uuid.New().String(),
-			Collection: "urgent_alerts",
-			Sensor:     agv.SensorIDs["has_pallet"],
-			Value:      float64(agv.HasPallet),
-			Time:       now,
-			Message:    "Pallet detectado",
-		})
-	}
-
-	// Alerta de estado crítico
+	// Critical status alert
 	if agv.Status >= 3 {
 		alerts = append(alerts, Reading{
 			MessageID:  uuid.New().String(),
@@ -244,7 +231,7 @@ func generateAlerts(agv *AGV) []Reading {
 }
 
 // ===============================
-// Función principal
+// Main function
 // ===============================
 func main() {
 	rand.Seed(time.Now().UnixNano())
@@ -253,7 +240,7 @@ func main() {
 	adminToken := getAdminToken()
 	fmt.Fprintln(os.Stderr, "Token obtenido:", adminToken)
 
-	// Crear o recuperar usuario admin
+	// Create o recover admin user 
 	userID := getUserIDByEmail(emailAdmin, adminToken)
 	if userID == "" {
 		userID = createRecord("users", map[string]interface{}{
@@ -268,7 +255,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Usuario ya existe con ID:", userID)
 	}
 
-	// Crear ubicaciones
+	// Create ubications
 	locations := []struct {
 		name string
 		lat  float64
@@ -290,7 +277,7 @@ func main() {
 		locIDs = append(locIDs, id)
 	}
 
-	// Crear dispositivos
+	// Create devices
 	agvs := []string{
 		fmt.Sprintf("AGV-01-%d", timestamp),
 		fmt.Sprintf("AGV-02-%d", timestamp),
@@ -307,7 +294,7 @@ func main() {
 		agvIDs = append(agvIDs, id)
 	}
 
-	// Asignar dispositivos a ubicaciones
+	// Allocate devices to locations
 	assignments := []struct {
 		agvIndex int
 		locIndex int
@@ -322,12 +309,12 @@ func main() {
 		}, adminToken)
 	}
 
-	// Crear sensor_contexts
+	// Create sensor contexts
 	sensorContextID := createRecord("sensor_contexts", map[string]interface{}{
 		"context": "data",
 	}, adminToken)
 
-	// Crear sensor_types
+	// Create sensor types
 	sensorTypes := []struct {
 		magnitude string
 		unit      string
@@ -347,7 +334,7 @@ func main() {
 		sensorTypeIDs = append(sensorTypeIDs, id)
 	}
 
-	// Crear sensores
+	// Create sensors
 	sensorsMap := map[string]map[string]string{}
 	for _, agvID := range agvIDs {
 		sensorsMap[agvID] = map[string]string{}
@@ -371,7 +358,7 @@ func main() {
 
 	fmt.Fprintln(os.Stderr, "Inicialización completa. Empezando simulación de lecturas...")
 
-	// Simulación de lecturas en tiempo real
+	// Real time readings simulation
 	agvObjs := []*AGV{}
 	for _, agvID := range agvIDs {
 		agvObjs = append(agvObjs, &AGV{
@@ -390,7 +377,7 @@ func main() {
 
 	for range ticker.C {
 		for _, agv := range agvObjs {
-			// Randomizar temperatura 15-35
+			// Randomize temperature between 15 - 35 
 			agv.Temperature += rand.Float64()*2 - 1
 			if agv.Temperature < 15 {
 				agv.Temperature = 15
@@ -399,13 +386,13 @@ func main() {
 				agv.Temperature = 35
 			}
 
-			// Batería
+			// Battery
 			agv.Battery -= rand.Float64() * 2
 			if agv.Battery < 0 {
 				agv.Battery = 100
 			}
 
-			// Estado
+			// Status
 			agv.Status = 1
 			if rand.Intn(10) < 3 || agv.HasPallet == 1 {
 				agv.Status = 2
@@ -430,12 +417,12 @@ func main() {
 			}
 
 			// ===============================
-			// Generar lecturas normales y alertas
+			// Generate normal readings and alerts
 			// ===============================
 			temperatureRounded := math.Round(agv.Temperature*10) / 10
 			batteryRounded := math.Round(agv.Battery*10) / 10
 
-			// Lecturas normales
+			// Normal readings
 			normalReadings := []Reading{
 				{
 					MessageID:  uuid.New().String(),
@@ -467,10 +454,10 @@ func main() {
 				},
 			}
 
-			// Enviar lecturas normales
+			// Send normal readings
 			sendBatchToBenthos(normalReadings)
 
-			// Generar alertas si corresponde
+			// Generate alerts if corresponds
 			alerts := generateAlerts(agv)
 			if len(alerts) > 0 {
 				sendBatchToBenthos(alerts)
