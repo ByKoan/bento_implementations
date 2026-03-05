@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO)
 # ===============================
 MQTT_BROKER = os.getenv("MQTT_BROKER")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
-MQTT_TOPIC = os.getenv("MQTT_TOPIC", "sensors/#")
+MQTT_TOPIC = os.getenv("MQTT_TOPIC")
 MQTT_PUBLISH_TOPIC_ALERTS = os.getenv("MQTT_PUBLISH_TOPIC_ALERTS")
 
 BATTERY_ID = os.getenv("BATTERY_ID")
@@ -25,8 +25,8 @@ TEMP_ID = os.getenv("TEMP_ID")
 STATUS_ID = os.getenv("STATUS_ID")
 HAS_PALLET_ID = os.getenv("HAS_PALLET_ID")
 
-COLLECTION_READINGS = os.getenv("COLLECTION_READINGS", "readings")
-COLLECTION_URGENT = os.getenv("COLLECTION_URGENT", "alerts")
+COLLECTION_READINGS = os.getenv("COLLECTION_READINGS")
+COLLECTION_URGENT = os.getenv("COLLECTION_URGENT")
 
 logger.info(f"BATTERY_ID cargado: {BATTERY_ID}")
 logger.info(f"TEMP_ID cargado: {TEMP_ID}")
@@ -55,11 +55,11 @@ def on_message(client, userdata, msg):
             logger.warning(f"Mensaje MQTT incompleto: {payload}")
             return
 
-        # Timestamp automático
+        # Automatic timestamp
         if "timestamp" not in payload:
             payload["timestamp"] = datetime.datetime.utcnow().isoformat() + "Z"
 
-        # message_id automático
+        # Automatic timestamp
         if "message_id" not in payload:
             payload["message_id"] = str(uuid.uuid4())
 
@@ -67,7 +67,7 @@ def on_message(client, userdata, msg):
         agv_id = payload.get("agv_id", "unknown")
 
         # ===============================
-        # Determinar tipo de sensor
+        # Establish sensor type
         # ===============================
         if sensor_id == BATTERY_ID:
             sensor_type = "battery"
@@ -83,7 +83,7 @@ def on_message(client, userdata, msg):
         logger.info(f"Procesando sensor {sensor_id} tipo {sensor_type}")
 
         # ===============================
-        # Procesar lectura
+        # Proccess readings
         # ===============================
         result = edge_processor.process_reading(
             payload,
@@ -100,20 +100,18 @@ def on_message(client, userdata, msg):
         alerts = result.get("alerts", [])
 
         # ===============================
-        # Guardar alertas (invalidas y normales)
+        # save alerts (Normal alerts and invalid alerts )
         # ===============================
         for alert in alerts:
-            # Convertir timestamp a string ISO si es datetime
             if isinstance(alert.get("timestamp"), datetime.datetime):
                 alert["timestamp"] = alert["timestamp"].isoformat()
 
-            batch_writer.add(alert, sensor_id, collection=COLLECTION_URGENT)
-            logger.warning(f"Enviado a URGENT: {alert}")
+        # Send all dict that EdgeProcessor returns
+        if alerts or normal_record:
+            batch_writer.add({"normal_record": normal_record, "alerts": alerts})
 
-            # ===============================
-            # Publicar alertas normales en MQTT
-            # Solo si no es inválida
-            # ===============================
+        # Public normal alerts in alert mqtt topic (only battery_low or overheat)
+        for alert in alerts:
             if alert["type"] in ("battery_low", "overheat"):
                 try:
                     client.publish(MQTT_PUBLISH_TOPIC_ALERTS, json.dumps(alert))
@@ -121,14 +119,12 @@ def on_message(client, userdata, msg):
                 except Exception as e:
                     logger.error(f"Error publicando alerta MQTT: {e}")
 
-        # ===============================
-        # Guardar lectura normal SOLO si existe y es válida
-        # ===============================
+        # Only save normal reading if exists and is valid
         if normal_record:
-            # Convertir time a string ISO
             if isinstance(normal_record.get("time"), datetime.datetime):
                 normal_record["time"] = normal_record["time"].isoformat()
-            batch_writer.add(normal_record, sensor_id, collection=COLLECTION_READINGS)
+
+            batch_writer.add({"normal_record": normal_record, "alerts": []})
             logger.info(f"Enviado a READINGS: {normal_record}")
 
     except Exception as e:

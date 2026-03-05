@@ -24,11 +24,11 @@ services:
           memory: 256M
 
 
-  bento:
+  bento_ml:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: bento_service
+    container_name: bento_ml
     restart: unless-stopped
 
     env_file:
@@ -58,6 +58,19 @@ services:
         limits:
           cpus: "1.00"
           memory: 512M
+  
+  benthos:
+    image: jeffail/benthos:latest  # <-- actualizamos a 5.x
+    container_name: benthos_binary
+    volumes:
+      - ./core/benthos.yaml:/benthos.yaml
+    command: -c /benthos.yaml
+    env_file:
+      - .env
+    ports:
+      - "4197:4197"
+    networks:
+      - backend
 
 
 networks:

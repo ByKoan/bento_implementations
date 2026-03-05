@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -24,7 +26,9 @@ const (
 	hasPalletTick = 5
 )
 
-// DataStruct with the content of AGV
+// ===============================
+// DataStruct with the content of the AGV
+// ===============================
 type AGV struct {
 	ID          string
 	Temperature float64
@@ -35,17 +39,21 @@ type AGV struct {
 	SensorIDs   map[string]string // "temperature","battery","has_pallet","status"
 }
 
+// ===============================
 // Reading sended to benthos
+// ===============================
 type Reading struct {
-	Sensor    string  `json:"sensor"`
-	Value     float64 `json:"value"`
-	HasPallet int     `json:"has_pallet"`
-	Status    int     `json:"status"`
-	Time      string  `json:"time"`
-	TempC     float64 `json:"temp_c"`
+	MessageID  string  `json:"message_id"`
+	Collection string  `json:"_collection"`
+	Sensor     string  `json:"sensor"`
+	Value      float64 `json:"value"`
+	Time       string  `json:"time"`
+	Message    string  `json:"message,omitempty"`
 }
 
-// Ejecuta el script de Python y devuelve el token
+// ===============================
+// Execute the python script and return the token
+// ===============================
 func getAdminToken() string {
 	cmd := exec.Command("python", "obtener_token.py")
 	var out bytes.Buffer
@@ -65,7 +73,62 @@ func getAdminToken() string {
 	return strings.TrimSpace(parts[1])
 }
 
-// Helper function to create new records in PocketBase
+// ===============================
+// Send a readings batch to benthos
+// ===============================
+func sendBatchToBenthos(batch []Reading) {
+    url := "http://localhost:4197/ingest"
+
+    payload := []map[string]interface{}{}
+
+    for _, r := range batch {
+        if r.Collection == "urgent_alerts" {
+            // Only send 'value' with the descriptive text
+            payload = append(payload, map[string]interface{}{
+                "value": r.Message,
+            })
+        } else {
+            // Normal readings
+            payload = append(payload, map[string]interface{}{
+                "_collection": r.Collection,
+                "message_id":  r.MessageID,
+                "sensor":      r.Sensor,
+                "value":       r.Value,
+                "time":        r.Time,
+            })
+        }
+    }
+
+    jsonData, err := json.Marshal(payload)
+    if err != nil {
+        log.Println("Error serializando batch:", err)
+        return
+    }
+
+    req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+    if err != nil {
+        log.Println("Error creando request:", err)
+        return
+    }
+    req.Header.Set("Content-Type", "application/json")
+
+    client := &http.Client{Timeout: 5 * time.Second}
+    resp, err := client.Do(req)
+    if err != nil {
+        log.Println("Error enviando a Benthos:", err)
+        return
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != 200 && resp.StatusCode != 201 {
+        body, _ := io.ReadAll(resp.Body)
+        log.Printf("Benthos respondió error: %s\n%s\n", resp.Status, string(body))
+    }
+}
+
+// ===============================
+// Helper to create records on DB
+// ===============================
 func createRecord(collection string, data map[string]interface{}, token string) string {
 	url := fmt.Sprintf("%s/%s/records", baseURL, collection)
 	jsonData, _ := json.Marshal(data)
@@ -91,7 +154,9 @@ func createRecord(collection string, data map[string]interface{}, token string) 
 	return res["id"].(string)
 }
 
-// Find user by email
+// ===============================
+// Find user by mail
+// ===============================
 func getUserIDByEmail(email, token string) string {
 	url := fmt.Sprintf("%s/users/records?filter=email='%s'", baseURL, email)
 	req, _ := http.NewRequest("GET", url, nil)
@@ -116,6 +181,58 @@ func getUserIDByEmail(email, token string) string {
 	return ""
 }
 
+// ===============================
+// Generate alerts according to thresholds 
+// ===============================
+func generateAlerts(agv *AGV) []Reading {
+	alerts := []Reading{}
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	temperatureRounded := math.Round(agv.Temperature*10) / 10
+	batteryRounded := math.Round(agv.Battery*10) / 10
+
+	// Overheat alert
+	if temperatureRounded > 32 {
+		alerts = append(alerts, Reading{
+			MessageID:  uuid.New().String(),
+			Collection: "urgent_alerts",
+			Sensor:     agv.SensorIDs["temperature"],
+			Value:      temperatureRounded,
+			Time:       now,
+			Message:    fmt.Sprintf("Temperatura crítica: %.1f°C", temperatureRounded),
+		})
+	}
+
+	// Low battery alert 
+	if batteryRounded < 20 {
+		alerts = append(alerts, Reading{
+			MessageID:  uuid.New().String(),
+			Collection: "urgent_alerts",
+			Sensor:     agv.SensorIDs["battery"],
+			Value:      batteryRounded,
+			Time:       now,
+			Message:    fmt.Sprintf("Batería baja: %.1f%%", batteryRounded),
+		})
+	}
+
+	// Critical status alert
+	if agv.Status >= 3 {
+		alerts = append(alerts, Reading{
+			MessageID:  uuid.New().String(),
+			Collection: "urgent_alerts",
+			Sensor:     agv.SensorIDs["status"],
+			Value:      float64(agv.Status),
+			Time:       now,
+			Message:    fmt.Sprintf("Estado crítico: %d", agv.Status),
+		})
+	}
+
+	return alerts
+}
+
+// ===============================
+// Main function
+// ===============================
 func main() {
 	rand.Seed(time.Now().UnixNano())
 	timestamp := time.Now().Unix()
@@ -123,7 +240,7 @@ func main() {
 	adminToken := getAdminToken()
 	fmt.Fprintln(os.Stderr, "Token obtenido:", adminToken)
 
-	// Create and upload new user admin
+	// Create o recover admin user 
 	userID := getUserIDByEmail(emailAdmin, adminToken)
 	if userID == "" {
 		userID = createRecord("users", map[string]interface{}{
@@ -138,7 +255,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Usuario ya existe con ID:", userID)
 	}
 
-	// Create locations
+	// Create ubications
 	locations := []struct {
 		name string
 		lat  float64
@@ -177,7 +294,7 @@ func main() {
 		agvIDs = append(agvIDs, id)
 	}
 
-	// Create devices_locations
+	// Allocate devices to locations
 	assignments := []struct {
 		agvIndex int
 		locIndex int
@@ -192,12 +309,12 @@ func main() {
 		}, adminToken)
 	}
 
-	// Create sensor_contexts
+	// Create sensor contexts
 	sensorContextID := createRecord("sensor_contexts", map[string]interface{}{
 		"context": "data",
 	}, adminToken)
 
-	// Create sensor_types
+	// Create sensor types
 	sensorTypes := []struct {
 		magnitude string
 		unit      string
@@ -241,7 +358,7 @@ func main() {
 
 	fmt.Fprintln(os.Stderr, "Inicialización completa. Empezando simulación de lecturas...")
 
-	// Real time readings simulation for benthos
+	// Real time readings simulation
 	agvObjs := []*AGV{}
 	for _, agvID := range agvIDs {
 		agvObjs = append(agvObjs, &AGV{
@@ -260,7 +377,7 @@ func main() {
 
 	for range ticker.C {
 		for _, agv := range agvObjs {
-			// Random temperature between 15 - 35
+			// Randomize temperature between 15 - 35 
 			agv.Temperature += rand.Float64()*2 - 1
 			if agv.Temperature < 15 {
 				agv.Temperature = 15
@@ -287,7 +404,7 @@ func main() {
 				agv.Status = 4
 			}
 
-			// HasPallet
+			// Pallet
 			if agv.PalletTicks == 0 && rand.Intn(5) == 0 {
 				agv.HasPallet = 1
 				agv.PalletTicks = hasPalletTick
@@ -299,21 +416,51 @@ func main() {
 				}
 			}
 
+			// ===============================
+			// Generate normal readings and alerts
+			// ===============================
 			temperatureRounded := math.Round(agv.Temperature*10) / 10
 			batteryRounded := math.Round(agv.Battery*10) / 10
 
-			// Generate readings
-			readings := []Reading{
-				{Sensor: agv.SensorIDs["temperature"], Value: temperatureRounded, HasPallet: agv.HasPallet, Status: agv.Status, Time: time.Now().UTC().Format(time.RFC3339), TempC: temperatureRounded},
-				{Sensor: agv.SensorIDs["battery"], Value: batteryRounded, HasPallet: agv.HasPallet, Status: agv.Status, Time: time.Now().UTC().Format(time.RFC3339), TempC: temperatureRounded},
-				{Sensor: agv.SensorIDs["has_pallet"], Value: float64(agv.HasPallet), HasPallet: agv.HasPallet, Status: agv.Status, Time: time.Now().UTC().Format(time.RFC3339), TempC: temperatureRounded},
-				{Sensor: agv.SensorIDs["status"], Value: float64(agv.Status), HasPallet: agv.HasPallet, Status: agv.Status, Time: time.Now().UTC().Format(time.RFC3339), TempC: temperatureRounded},
+			// Normal readings
+			normalReadings := []Reading{
+				{
+					MessageID:  uuid.New().String(),
+					Collection: "readings",
+					Sensor:     agv.SensorIDs["temperature"],
+					Value:      temperatureRounded,
+					Time:       time.Now().UTC().Format(time.RFC3339),
+				},
+				{
+					MessageID:  uuid.New().String(),
+					Collection: "readings",
+					Sensor:     agv.SensorIDs["battery"],
+					Value:      batteryRounded,
+					Time:       time.Now().UTC().Format(time.RFC3339),
+				},
+				{
+					MessageID:  uuid.New().String(),
+					Collection: "readings",
+					Sensor:     agv.SensorIDs["has_pallet"],
+					Value:      float64(agv.HasPallet),
+					Time:       time.Now().UTC().Format(time.RFC3339),
+				},
+				{
+					MessageID:  uuid.New().String(),
+					Collection: "readings",
+					Sensor:     agv.SensorIDs["status"],
+					Value:      float64(agv.Status),
+					Time:       time.Now().UTC().Format(time.RFC3339),
+				},
 			}
 
-			// Send to stdout for benthos
-			for _, r := range readings {
-				j, _ := json.Marshal(r)
-				fmt.Println(string(j))
+			// Send normal readings
+			sendBatchToBenthos(normalReadings)
+
+			// Generate alerts if corresponds
+			alerts := generateAlerts(agv)
+			if len(alerts) > 0 {
+				sendBatchToBenthos(alerts)
 			}
 		}
 	}

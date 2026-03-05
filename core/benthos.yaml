@@ -1,31 +1,40 @@
-# /core/benthos.yaml - compatible con v4.11.0
+http:
+  address: 0.0.0.0:4197
+
 input:
-  stdin:
-    codec: lines 
+  http_server:
+    path: /ingest
+    allowed_verbs: [ POST ]
 
 pipeline:
   processors:
-    - bloblang: |
-        root.sensor = this.sensor
-        root.value = this.value
-        root.time = this.time
+    - unarchive:
+        format: json_array
+
+    - mapping: |
+        meta collection = this._collection
+        root = this.without("_collection")
 
 output:
-  http_client:
-    url: "${POCKETBASE_URL}/api/collections/readings/records"
-    verb: POST
-    headers:
-      Content-Type: application/json
-      Authorization: "Bearer ${POCKETBASE_TOKEN}"
-    batching:
-      count: 50
-      period: 5s
-    retries: 5
-    retry_period: 1s
-    max_retry_backoff: 30s
+  switch:
+    cases:
 
-logger:
-  level: INFO
+      - check: meta("collection") == "readings"
+        output:
+          http_client:
+            url: http://host.docker.internal:8090/api/collections/readings/records
+            verb: POST
+            headers:
+              Content-Type: application/json
 
-http:
-  address: "0.0.0.0:0"
+      - check: meta("collection") == "urgent_alerts"
+        output:
+          http_client:
+            url: http://host.docker.internal:8090/api/collections/urgent_alerts/records
+            verb: POST
+            headers:
+              Content-Type: application/json
+
+      - output:
+          stdout:
+            codec: lines

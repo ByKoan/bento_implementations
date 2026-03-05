@@ -1,63 +1,127 @@
 import pytest
 import yaml
 
+
 def test_bento_yaml_pipeline():
+
+    # -------------------------
     # Load YAML
+    # -------------------------
     with open("tests/test_bento.yml", "r") as f:
         data = yaml.safe_load(f)
+
+    # -------------------------
+    # Validate HTTP service
+    # -------------------------
+    assert "http" in data
+    assert "address" in data["http"]
+    assert data["http"]["address"] == "0.0.0.0:4197"
 
     # -------------------------
     # Validate input
     # -------------------------
     assert "input" in data
-    assert "stdin" in data["input"] 
-    stdin_input = data["input"]["stdin"]
-    assert isinstance(stdin_input, dict)
+    assert "http_server" in data["input"]
+
+    http_input = data["input"]["http_server"]
+
+    assert "path" in http_input
+    assert http_input["path"] == "/ingest"
+
+    assert "allowed_verbs" in http_input
+    assert "POST" in http_input["allowed_verbs"]
 
     # -------------------------
     # Validate pipeline
     # -------------------------
     assert "pipeline" in data
     assert "processors" in data["pipeline"]
-    assert len(data["pipeline"]["processors"]) > 0
 
-    # Validate that ingestion_time mapped to time
-    first_processor = data["pipeline"]["processors"][0]
-    assert "bloblang" in first_processor
-    blob_script = first_processor["bloblang"]
-    assert "ingestion_timestamp.ts_parse" in blob_script
-    assert "time" in blob_script
+    processors = data["pipeline"]["processors"]
+    assert len(processors) >= 2
+
+    # Processor 1 -> unarchive
+    assert "unarchive" in processors[0]
+    assert processors[0]["unarchive"]["format"] == "json_array"
+
+    # Processor 2 -> mapping
+    assert "mapping" in processors[1]
+
+    mapping_script = processors[1]["mapping"]
+
+    assert "meta collection" in mapping_script
+    assert "this._collection" in mapping_script
+    assert "root = this.without" in mapping_script
 
     # -------------------------
     # Validate output
     # -------------------------
     assert "output" in data
-    assert "http_client" in data["output"]
-    http_output = data["output"]["http_client"]
-    assert "url" in http_output
-    assert "verb" in http_output
-    assert http_output["verb"] == "POST"
-    assert "headers" in http_output
-    assert "Authorization" in http_output["headers"]
-    assert "batching" in http_output
-    assert "processors" in http_output
-    output_processor = http_output["processors"][0]
-    assert "bloblang" in output_processor
-    # Validate each item
-    assert "/api/collections/" in output_processor["bloblang"]
-    assert "body" in output_processor["bloblang"]
+    assert "switch" in data["output"]
+
+    switch = data["output"]["switch"]
+
+    assert "cases" in switch
+    cases = switch["cases"]
+
+    assert len(cases) >= 2
 
     # -------------------------
-    # Validate JSON example of input
+    # Validate readings case
     # -------------------------
-    example_input = {
-        "sensor": "5bqfwcv9g6g1tm6",
-        "value": 94,
-        "ingestion_timestamp": "2026-02-27T08:30:13.063626Z",
-        "temp_c": 94.0
-    }
-    # Pipeline must generate time field
-    assert "ingestion_timestamp" in example_input
-    assert "temp_c" in example_input
-    assert "sensor" in example_input
-    assert "value" in example_input
+    readings_case = cases[0]
+
+    assert "check" in readings_case
+    assert "readings" in readings_case["check"]
+
+    readings_output = readings_case["output"]
+    assert "http_client" in readings_output
+
+    http_client = readings_output["http_client"]
+
+    assert http_client["verb"] == "POST"
+    assert "url" in http_client
+    assert "/readings/records" in http_client["url"]
+
+    assert "headers" in http_client
+    assert "Content-Type" in http_client["headers"]
+
+    # -------------------------
+    # Validate urgent_alerts case
+    # -------------------------
+    alerts_case = cases[1]
+
+    assert "check" in alerts_case
+    assert "urgent_alerts" in alerts_case["check"]
+
+    alerts_output = alerts_case["output"]
+    assert "http_client" in alerts_output
+
+    http_client = alerts_output["http_client"]
+
+    assert http_client["verb"] == "POST"
+    assert "url" in http_client
+    assert "/urgent_alerts/records" in http_client["url"]
+
+    assert "headers" in http_client
+    assert "Content-Type" in http_client["headers"]
+
+    # -------------------------
+    # Validate example input format
+    # -------------------------
+    example_input = [
+        {
+            "message_id": "abc",
+            "_collection": "readings",
+            "sensor": "sensor1",
+            "value": 25.5,
+            "time": "2026-03-04T12:00:00Z"
+        }
+    ]
+
+    msg = example_input[0]
+
+    assert "_collection" in msg
+    assert "sensor" in msg
+    assert "value" in msg
+    assert "time" in msg
