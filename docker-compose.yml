@@ -20,8 +20,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.50"
-          memory: 256M
+          cpus: "1"
+          memory: 512M
 
 
   bento_ml:
@@ -56,8 +56,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.00"
-          memory: 512M
+          cpus: "2"
+          memory: 1024M
   
   benthos:
     image: jeffail/benthos:4.27.0
@@ -75,8 +75,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.00"
-          memory: 2048M
+          cpus: "4"
+          memory: 4096M
 
 
 networks:
