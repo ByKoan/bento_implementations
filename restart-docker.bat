@@ -1,4 +1,4 @@
 docker compose down
-docker compose build --no-cache
+docker compose --progress=plain build --no-cache
 docker compose up
 pause

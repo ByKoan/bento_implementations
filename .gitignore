@@ -2,3 +2,6 @@
 /tests/bento-test.*
 /scripts/start.bat
 /.obsidian
+*/__pycache__/
+/scripts/go.mod
+/scripts/go.sum

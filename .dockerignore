@@ -1,0 +1,22 @@
+# Archivos del sistema y temporales
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.swo
+*.DS_Store
+
+# Carpeta de datos, logs, y outputs locales
+data/
+
+# Entorno virtual local 
+.env
+
+# Configuraciones de IDE
+.vscode/
+.idea/
+*.iml
+
+# Archivos de test / cache
+.pytest_cache/
