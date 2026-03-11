@@ -12,6 +12,7 @@ data/
 
 # Entorno virtual local 
 .env
+scripts/token.env
 
 # Configuraciones de IDE
 .vscode/

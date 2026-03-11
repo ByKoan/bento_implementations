@@ -120,12 +120,14 @@ class BatchWriter:
     # DB Health Check
     # ===============================
     def _is_db_alive(self):
+
+        
         # TODO: Se usa PocketBaseClient para el health check, pero el cliente
         # ya no se usa para enviar datos a la DB (todo pasa por Benthos).
         # Esta dualidad es confusa. Simplificar usando requests.get() directamente:
         # requests.get(f"{POCKETBASE_URL}/api/health", timeout=3)
         try:
-            return self.pb.get("/api/health").status_code == 200
+            requests.get(f"{self.pb}/api/health", timeout=3)
         except Exception:
             return False
 

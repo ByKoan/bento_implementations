@@ -5,3 +5,4 @@
 */__pycache__/
 /scripts/go.mod
 /scripts/go.sum
+/scripts/token.env

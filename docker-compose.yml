@@ -68,6 +68,7 @@ services:
     command: -c /benthos.yaml
     env_file:
       - .env
+      - token.env
     ports:
       - "4197:4197"
     networks:
@@ -94,7 +95,7 @@ services:
     command: pytest
     networks:
       - backend
-    tty: true # See test logs in real time
+    tty: true 
 
 
 networks:
