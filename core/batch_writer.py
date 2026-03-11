@@ -23,6 +23,9 @@ MAX_RETRIES = int(os.getenv("MAX_RETRIES", 5))
 BASE_DELAY = float(os.getenv("BASE_DELAY", 1))
 MAX_DELAY = float(os.getenv("MAX_DELAY", 10))
 QUEUE_FILE = os.getenv("QUEUE_FILE")
+# TODO: BENTHOS_URL es una variable crítica para el funcionamiento del sistema
+# pero no está definida en .env.example ni en el bloque environment del
+# docker-compose.yml. Añadirla en ambos sitios para evitar confusión.
 BENTHOS_URL = os.getenv("BENTHOS_URL")
 
 
@@ -63,6 +66,10 @@ class BatchWriter:
             normal_record = processed.get("normal_record")
             if normal_record:
                 normal_record["_collection"] = COLLECTION_READINGS
+                # TODO: disk.exists() recorre todo el fichero en cada llamada.
+                # Con muchos AGVs enviando datos en paralelo esto puede ser
+                # un cuello de botella. Mejora: mantener un set de message_ids
+                # en memoria como caché para evitar lecturas de disco repetidas.
                 if not self.disk.exists(normal_record.get("message_id")):
                     self.disk.append([normal_record])
                     logger.info(f"normal_record añadido al disco: {normal_record}")
@@ -113,6 +120,10 @@ class BatchWriter:
     # DB Health Check
     # ===============================
     def _is_db_alive(self):
+        # TODO: Se usa PocketBaseClient para el health check, pero el cliente
+        # ya no se usa para enviar datos a la DB (todo pasa por Benthos).
+        # Esta dualidad es confusa. Simplificar usando requests.get() directamente:
+        # requests.get(f"{POCKETBASE_URL}/api/health", timeout=3)
         try:
             return self.pb.get("/api/health").status_code == 200
         except Exception:
@@ -178,6 +189,10 @@ class BatchWriter:
             self._send_to_error_topic(r, "max_retries_exceeded")
         return unique_batch
 
-
-# Create global instance
+# BUG: Esta instancia global se crea al importar el módulo, lo que significa
+# que si se importa batch_writer en varios sitios (como ocurre en service.py
+# donde se crea otra instancia en __init__), se iniciaran múltiples hilos
+# _disk_retry_loop compitiendo por el mismo fichero de disco.
+# Solución: usar el patrón Singleton o eliminar esta instancia global
+# y gestionar el ciclo de vida desde service.py únicamente.
 batch_writer = BatchWriter()

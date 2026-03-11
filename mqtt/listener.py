@@ -59,7 +59,7 @@ def on_message(client, userdata, msg):
         if "timestamp" not in payload:
             payload["timestamp"] = datetime.datetime.utcnow().isoformat() + "Z"
 
-        # Automatic timestamp
+        # Generación automática de message_id único para trazabilidad
         if "message_id" not in payload:
             payload["message_id"] = str(uuid.uuid4())
 
@@ -105,7 +105,14 @@ def on_message(client, userdata, msg):
         for alert in alerts:
             if isinstance(alert.get("timestamp"), datetime.datetime):
                 alert["timestamp"] = alert["timestamp"].isoformat()
-
+                
+        # TODO: Este bloque y el bloque de abajo llaman a batch_writer.add
+        # dos veces para el mismo normal_record. La primera llamada ya incluye el normal_record
+        # junto con las alertas. La segunda llamada lo vuelve a añadir solo.
+        # Aunque el filtro de message_id en DiskQueue evita duplicados en disco,
+        # es un bug lógico que genera llamadas innecesarias y puede causar confusión.
+        # SOLUCIÓN: Eliminar el segundo batch_writer.add de abajo y dejar solo este.
+        
         # Send all dict that EdgeProcessor returns
         if alerts or normal_record:
             batch_writer.add({"normal_record": normal_record, "alerts": alerts})
@@ -119,6 +126,11 @@ def on_message(client, userdata, msg):
                 except Exception as e:
                     logger.error(f"Error publicando alerta MQTT: {e}")
 
+        # BUG: Este segundo batch_writer.add es redundante. El normal_record
+        # ya fue enviado en el bloque anterior junto con las alertas.
+        # Además, la conversión de datetime a isoformat() debería hacerse
+        # antes del primer add, no aquí.
+        
         # Only save normal reading if exists and is valid
         if normal_record:
             if isinstance(normal_record.get("time"), datetime.datetime):

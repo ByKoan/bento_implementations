@@ -37,6 +37,10 @@ services:
     environment:
       MQTT_HOST: mqtt
       POCKETBASE_URL: http://host.docker.internal:8090
+      # TODO: Falta definir BENTHOS_URL aquí (ej: http://benthos_binary:4197/ingest)
+      # El BatchWriter necesita esta variable para saber a dónde enviar los datos.
+      # Sin ella, la variable se lee del .env pero no está documentada en .env.example
+      # lo que puede confundir a quien configure el proyecto por primera vez.
 
     depends_on:
       mqtt:
@@ -45,6 +49,10 @@ services:
     volumes:
       - ./data:/app/data:rw
       - ./tests:/app/tests:rw 
+      # BUG: Este volumen monta ./core en /core (raíz del sistema) en lugar de /app/core.
+      # El PYTHONPATH del contenedor apunta a /app, por lo que Python usa la copia
+      # del build en /app/core y no este volumen. Los cambios en desarrollo no se
+      # reflejan sin hacer rebuild. Corrección: cambiar a ./core:/app/core:rw
       - ./core:/core 
 
     ports:
@@ -75,6 +83,9 @@ services:
     deploy:
       resources:
         limits:
+          # TODO: 4 CPUs y 4096MB es excesivo para un gateway HTTP que solo
+          # hace routing de mensajes. En producción reducir a cpus: "1" y
+          # memory: 512M para no consumir recursos innecesarios del servidor.
           cpus: "4"
           memory: 4096M
 
