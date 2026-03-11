@@ -12,10 +12,17 @@ logger.setLevel(logging.INFO)
 # Configuración de límites
 BATTERY_MINIMUM_INVALID = int(os.getenv("BATTERY_MINIMUM_INVALID", 0))
 BATTERY_MAXIMUM_INVALID = int(os.getenv("BATTERY_MAXIMUM_INVALID", 100))
+# BUG: En el .env la variable se llama TEMP_MIMIMUM_INVALID (con doble 'i')
+# pero aquí se lee como TEMP_MINIMUM_INVALID (correcto). Esto hace que el
+# límite mínimo de temperatura NUNCA se cargue desde el .env y siempre
+# use el valor por defecto (-50). Corregir el nombre en el .env y .env.example.
 TEMP_MINIMUM_INVALID = int(os.getenv("TEMP_MINIMUM_INVALID", -50))
 TEMP_MAXIMUM_INVALID = int(os.getenv("TEMP_MAXIMUM_INVALID", 150))
 
 BATTERY_THRESHOLD = int(os.getenv("BATTERY_THRESHOLD", 15))
+# TODO: Este umbral (75°C por defecto) es inconsistente con el simulador
+# script.go donde la alerta de sobrecalentamiento se dispara a partir de 32°C.
+# Unificar los umbrales entre ambas capas para evitar falsas alarmas en pruebas.
 TEMP_THRESHOLD = int(os.getenv("TEMP_THRESHOLD", 75))
 
 
@@ -35,12 +42,21 @@ class EdgeProcessor:
         if value is None:
             logger.warning(f"Sensor {sensor_id} envió valor nulo")
             return None
+        # TODO: Si sensor_type es "unknown" (asignado en listener.py cuando
+        # el sensor_id no coincide con ningún ID conocido), este método
+        # no aplica ninguna validación y genera un normal_record sin filtrar.
+        # Considerar añadir un bloque explícito para manejar sensores desconocidos
+        # o rechazarlos directamente con una alerta al error topic.
 
         alerts = []
 
         # =====================================================
         # Invalid values validations
         # =====================================================
+        # TODO: Los operadores <= y >= hacen que batería=0 y batería=100
+        # sean tratados como valores inválidos. Documentar si 0% y 100%
+        # son realmente inválidos o si debería ser < y > en su lugar.
+        # El comportamiento actual descarta batería=0 y batería=100.
         if sensor_type == "battery" and (value <= BATTERY_MINIMUM_INVALID or value >= BATTERY_MAXIMUM_INVALID):
             alert = {
                 **build_ingestion_metadata(),

@@ -26,7 +26,12 @@ class PocketBaseClient:
     def authenticate(self):
 
         '''Authenticate with PocketBase using the provided credentials and obtain a token.'''
-
+        # BUG: Esta URL autentica contra la colección "users" (usuarios normales),
+        # pero el .env define POCKETBASE_SUPERUSER para usar un superusuario.
+        # Los superusuarios de PocketBase usan un endpoint distinto:
+        # /api/collections/_superusers/auth-with-password
+        # Revisar qué tipo de usuario debe autenticar este cliente y
+        # usar la URL correspondiente.
         url = f"{PB_URL}/api/collections/users/auth-with-password"
 
         payload = {
@@ -39,7 +44,9 @@ class PocketBaseClient:
 
         self.token = r.json()["token"]
         # If the authentication is successful, we store the token for future requests
-
+        # TODO: Usar logger.info() en lugar de print(). En producción los
+        # print() no se gestionan por el sistema de logging configurado
+        # en el resto del proyecto y pueden saturar la salida estándar.
         print()
         print("✅ PocketBase autenticado", flush=True)
         print()
@@ -71,7 +78,10 @@ class PocketBaseClient:
             headers["Authorization"] = f"Bearer {self.token}"
             r = requests.post(url, json=data, headers=headers, timeout=10)
             # If the token was expired, we re-authenticate and try the request again with the new token
-
+        # TODO: Mismo problema. Reemplazar por:
+        # logger.debug("STATUS: %s | BODY: %s", r.status_code, r.text)
+        # Usar DEBUG y no INFO para no saturar los logs en producción
+        # con el body completo de cada respuesta de PocketBase.
         print("\nSTATUS:", r.status_code, flush=True)
         print("BODY:", r.text, flush=True)
         print()
@@ -94,7 +104,10 @@ class PocketBaseClient:
             self.authenticate()
 
         url = f"{PB_URL}{path}"
-
+        
+        # NOTA: El timeout de 10s está bien para el health check, pero si
+        # este método se usa para consultas pesadas en el futuro, considerar
+        # parametrizar el timeout según el tipo de operación.
         response = requests.get(
             url,
             headers={
