@@ -64,7 +64,6 @@ def on_message(client, userdata, msg):
             payload["message_id"] = str(uuid.uuid4())
 
         sensor_id = payload["sensor"]
-        agv_id = payload.get("agv_id", "unknown")
 
         # ===============================
         # Establish sensor type
@@ -88,8 +87,7 @@ def on_message(client, userdata, msg):
         result = edge_processor.process_reading(
             payload,
             sensor_type=sensor_type,
-            sensor_id=sensor_id,
-            agv_id=agv_id
+            sensor_id=sensor_id
         )
 
         if not result:

@@ -65,6 +65,7 @@ services:
     container_name: benthos_binary
     volumes:
       - ./core/benthos.yaml:/benthos.yaml
+      - ./tests:/app/tests:rw
     command: -c /benthos.yaml
     env_file:
       - .env
@@ -96,6 +97,7 @@ services:
     networks:
       - backend
     tty: true 
+    
 
 
 networks:
