@@ -5,8 +5,6 @@ import threading
 import time
 import logging
 import requests
-import subprocess
-import sys
 from datetime import datetime
 
 from core.pocketbase_client import PocketBaseClient
@@ -25,8 +23,10 @@ MAX_RETRIES = int(os.getenv("MAX_RETRIES", 5))
 BASE_DELAY = float(os.getenv("BASE_DELAY", 1))
 MAX_DELAY = float(os.getenv("MAX_DELAY", 10))
 QUEUE_FILE = os.getenv("QUEUE_FILE")
-BENTHOS_URL = os.getenv("BENTHOS_URL") # [SOLVED] Problema con Benthos URL
-PB_URL = os.getenv("POCKETBASE_URL")
+# TODO: BENTHOS_URL es una variable crítica para el funcionamiento del sistema
+# pero no está definida en .env.example ni en el bloque environment del
+# docker-compose.yml. Añadirla en ambos sitios para evitar confusión.
+BENTHOS_URL = os.getenv("BENTHOS_URL")
 
 
 class BatchWriter:
@@ -42,8 +42,6 @@ class BatchWriter:
 
         self.pb = PocketBaseClient()
         self.disk = DiskQueue(QUEUE_FILE)
-
-        self.db_was_down = False
 
         count = self.disk.count()
         if count:
@@ -122,30 +120,13 @@ class BatchWriter:
     # DB Health Check
     # ===============================
     def _is_db_alive(self):
-
-        # [SOLVED] Getting PB_URL from .env instead the client class
+        # TODO: Se usa PocketBaseClient para el health check, pero el cliente
+        # ya no se usa para enviar datos a la DB (todo pasa por Benthos).
+        # Esta dualidad es confusa. Simplificar usando requests.get() directamente:
+        # requests.get(f"{POCKETBASE_URL}/api/health", timeout=3)
         try:
-            url = f"{PB_URL}/api/health"
-            r = requests.get(url, timeout=3)
-            alive = r.status_code == 200
-
-            if alive and self.db_was_down:
-                print("DB Volvio a estar activa. Obteniendo nuevo token...", flush=True)
-
-                subprocess.run(
-                    [sys.executable, "/app/scripts/obtener_token.py"],
-                    check=False
-                )
-
-                self.db_was_down = False
-
-            if not alive:
-                self.db_was_down = True
-            
-            return alive
-        
-        except requests.RequestException as e:
-            # print("[DEBUG] Health check error: ", e) # Debugging for the PB_URL
+            return self.pb.get("/api/health").status_code == 200
+        except Exception:
             return False
 
     # ===============================

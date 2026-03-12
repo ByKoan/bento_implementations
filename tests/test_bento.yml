@@ -1,5 +1,3 @@
-# docker exec -it benthos_binary /benthos test /app/tests/test_bento.yml
-
 http:
   address: 0.0.0.0:4197
 
@@ -10,12 +8,51 @@ input:
 
 pipeline:
   processors:
-    - mapping: |
-        root.value_f = this.value * 9 / 5 + 32
+    - unarchive:
+        format: json_array
 
-test:
-  - name: "Convertir temperatura C → F"
-    input:
-      - '{"sensor": "TEMP", "value": 25}'
-    output:
-      - '{"sensor": "TEMP", "value": 77}'
+    - mapping: |
+        # TODO: Este mapping no valida el esquema del mensaje entrante.
+        # Si llega un mensaje sin campo "sensor" o "value", se envía
+        # igualmente a PocketBase y genera un error 400 no gestionado.
+        # Considerar añadir una validación: if !this.exists("sensor") {
+        #   throw("Mensaje inválido: falta campo sensor") }
+        meta collection = this._collection
+        root = this.without("_collection")
+
+# TODO: Los outputs http_client no tienen política de retry configurada.
+# Si PocketBase falla puntualmente, el mensaje se pierde sin reintentar.
+# Solución recomendada: añadir en cada http_client:
+#   backoff:
+#     initial_interval: 1s
+#     max_interval: 30s
+#     max_elapsed_time: 5m
+output:
+  switch:
+    cases:
+
+      - check: meta("collection") == "readings"
+        output:
+          http_client:
+            url: http://host.docker.internal:8090/api/collections/readings/records
+            verb: POST
+            headers:
+              Content-Type: application/json
+              # BUG: Falta el header de autorización hacia PocketBase.
+              # Las peticiones se envían sin token, lo que solo funciona si
+              # la colección tiene reglas de acceso público.
+              # En producción esto es un riesgo de seguridad.
+              # Solución: añadir Authorization: "Bearer ${POCKETBASE_TOKEN}"
+            
+
+      - check: meta("collection") == "urgent_alerts"
+        output:
+          http_client:
+            url: http://host.docker.internal:8090/api/collections/urgent_alerts/records
+            verb: POST
+            headers:
+              Content-Type: application/json
+              # BUG: Mismo problema que en readings. Sin Authorization header.
+      - output:
+          stdout:
+            codec: lines

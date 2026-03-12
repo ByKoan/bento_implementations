@@ -37,7 +37,7 @@ class EdgeProcessor:
     def __init__(self):
         pass
 
-    def process_reading(self, reading: dict, sensor_type: str, sensor_id: str):
+    def process_reading(self, reading: dict, sensor_type: str, sensor_id: str, agv_id: str):
         value = reading.get("value")
         if value is None:
             logger.warning(f"Sensor {sensor_id} envió valor nulo")
@@ -60,6 +60,7 @@ class EdgeProcessor:
         if sensor_type == "battery" and (value <= BATTERY_MINIMUM_INVALID or value >= BATTERY_MAXIMUM_INVALID):
             alert = {
                 **build_ingestion_metadata(),
+                "agv": agv_id,
                 "sensor": sensor_id,
                 "type": "battery_invalid",
                 "value": f"Batería inválida: {value}",
@@ -71,6 +72,7 @@ class EdgeProcessor:
         if sensor_type == "temperature" and (value <= TEMP_MINIMUM_INVALID or value >= TEMP_MAXIMUM_INVALID):
             alert = {
                 **build_ingestion_metadata(),
+                "agv": agv_id,
                 "sensor": sensor_id,
                 "type": "temperature_invalid",
                 "value": f"Temperatura inválida: {value}",
@@ -82,6 +84,7 @@ class EdgeProcessor:
         if sensor_type == "has_pallet" and value not in (0, 1):
             alert = {
                 **build_ingestion_metadata(),
+                "agv": agv_id,
                 "sensor": sensor_id,
                 "type": "has_pallet_invalid",
                 "value": f"HasPallet inválido: {value}",
@@ -93,6 +96,7 @@ class EdgeProcessor:
         if sensor_type == "status" and value not in (0, 1, 2, 3):
             alert = {
                 **build_ingestion_metadata(),
+                "agv": agv_id,
                 "sensor": sensor_id,
                 "type": "status_invalid",
                 "value": f"Status inválido: {value}",
@@ -107,6 +111,7 @@ class EdgeProcessor:
         if sensor_type == "battery" and value < BATTERY_THRESHOLD:
             alerts.append({
                 **build_ingestion_metadata(),
+                "agv": agv_id,
                 "sensor": sensor_id,
                 "type": "battery_low",
                 "value": f"Batería baja: {value}%",
@@ -116,6 +121,7 @@ class EdgeProcessor:
         if sensor_type == "temperature" and value > TEMP_THRESHOLD:
             alerts.append({
                 **build_ingestion_metadata(),
+                "agv": agv_id,
                 "sensor": sensor_id,
                 "type": "overheat",
                 "value": f"Sobrecalentamiento: {value}°C",
@@ -133,6 +139,7 @@ class EdgeProcessor:
 
         normal_record = {
             **build_ingestion_metadata(),
+            "agv": agv_id,
             "sensor": sensor_id,
             "type": sensor_type,
             "value": value,

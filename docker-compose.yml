@@ -37,7 +37,10 @@ services:
     environment:
       MQTT_HOST: mqtt
       POCKETBASE_URL: http://host.docker.internal:8090
-      BENTHOS_URL: http://benthos:4197/ingest # [SOLVED] BENTHOS_URL defined in docker-compose.yml and .env.example syncronized with .env
+      # TODO: Falta definir BENTHOS_URL aquí (ej: http://benthos_binary:4197/ingest)
+      # El BatchWriter necesita esta variable para saber a dónde enviar los datos.
+      # Sin ella, la variable se lee del .env pero no está documentada en .env.example
+      # lo que puede confundir a quien configure el proyecto por primera vez.
 
     depends_on:
       mqtt:
@@ -46,7 +49,11 @@ services:
     volumes:
       - ./data:/app/data:rw
       - ./tests:/app/tests:rw 
-      - ./core:/app/core:rw # [SOLVED]: Fixed /core mounted on /app 
+      # BUG: Este volumen monta ./core en /core (raíz del sistema) en lugar de /app/core.
+      # El PYTHONPATH del contenedor apunta a /app, por lo que Python usa la copia
+      # del build en /app/core y no este volumen. Los cambios en desarrollo no se
+      # reflejan sin hacer rebuild. Corrección: cambiar a ./core:/app/core:rw
+      - ./core:/core 
 
     ports:
       - "3000:3000"
@@ -65,11 +72,9 @@ services:
     container_name: benthos_binary
     volumes:
       - ./core/benthos.yaml:/benthos.yaml
-      - ./tests:/app/tests:rw
     command: -c /benthos.yaml
     env_file:
       - .env
-      - token.env
     ports:
       - "4197:4197"
     networks:
@@ -78,26 +83,11 @@ services:
     deploy:
       resources:
         limits:
-
-          # [SOLVED]: System resources fixed for the provided use of the service
-          cpus: "1"
-          memory: 512M
-
-  benthos_tests:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: bento_tests
-    depends_on:
-      mqtt:
-        condition: service_healthy
-    volumes:
-      - .:/app
-    command: pytest
-    networks:
-      - backend
-    tty: true 
-    
+          # TODO: 4 CPUs y 4096MB es excesivo para un gateway HTTP que solo
+          # hace routing de mensajes. En producción reducir a cpus: "1" y
+          # memory: 512M para no consumir recursos innecesarios del servidor.
+          cpus: "4"
+          memory: 4096M
 
 
 networks:

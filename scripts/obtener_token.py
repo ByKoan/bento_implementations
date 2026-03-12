@@ -31,9 +31,6 @@ if response.status_code == 200:
     token = data.get("token")
     if token:
         print("Token de usuario:", token)
-        with open("token.env", "w") as f:
-            f.write(f"POCKETBASE_TOKEN={token}\n")
-        print("Token guardado correctamente")
     else:
         print("No se obtuvo token. Revisa que el usuario exista y la contraseña sea correcta.")
 else:
