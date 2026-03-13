@@ -49,11 +49,7 @@ services:
     volumes:
       - ./data:/app/data:rw
       - ./tests:/app/tests:rw 
-      # BUG: Este volumen monta ./core en /core (raíz del sistema) en lugar de /app/core.
-      # El PYTHONPATH del contenedor apunta a /app, por lo que Python usa la copia
-      # del build en /app/core y no este volumen. Los cambios en desarrollo no se
-      # reflejan sin hacer rebuild. Corrección: cambiar a ./core:/app/core:rw
-      - ./core:/core 
+      - ./core:/app/core:rw   # [SOLVED] Fixing bug on /core, adding it to the workdir 
 
     ports:
       - "3000:3000"
