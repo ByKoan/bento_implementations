@@ -64,7 +64,6 @@ def on_message(client, userdata, msg):
             payload["message_id"] = str(uuid.uuid4())
 
         sensor_id = payload["sensor"]
-        agv_id = payload.get("agv_id", "unknown")
 
         # ===============================
         # Establish sensor type
@@ -88,8 +87,7 @@ def on_message(client, userdata, msg):
         result = edge_processor.process_reading(
             payload,
             sensor_type=sensor_type,
-            sensor_id=sensor_id,
-            agv_id=agv_id
+            sensor_id=sensor_id
         )
 
         if not result:
@@ -102,22 +100,20 @@ def on_message(client, userdata, msg):
         # ===============================
         # save alerts (Normal alerts and invalid alerts )
         # ===============================
+
+        # [SOLVED] batch_writer.add is called only once & deleted extracting AGV_ID on edge proccesor for avoiding errors here
+
+        if normal_record and isinstance(normal_record.get("time"), datetime.datetime):
+            normal_record["time"] = normal_record["time"].strftime("%Y-%m-%dT%H:%M:%SZ")
+
         for alert in alerts:
             if isinstance(alert.get("timestamp"), datetime.datetime):
-                alert["timestamp"] = alert["timestamp"].isoformat()
-                
-        # TODO: Este bloque y el bloque de abajo llaman a batch_writer.add
-        # dos veces para el mismo normal_record. La primera llamada ya incluye el normal_record
-        # junto con las alertas. La segunda llamada lo vuelve a añadir solo.
-        # Aunque el filtro de message_id en DiskQueue evita duplicados en disco,
-        # es un bug lógico que genera llamadas innecesarias y puede causar confusión.
-        # SOLUCIÓN: Eliminar el segundo batch_writer.add de abajo y dejar solo este.
-        
-        # Send all dict that EdgeProcessor returns
+                alert["timestamp"] = alert["timestamp"].strftime("%Y-%m-%dT%H:%M:%SZ")
+
         if alerts or normal_record:
             batch_writer.add({"normal_record": normal_record, "alerts": alerts})
+            logger.info(f"Enviando a batch_writer: normal_record = {normal_record}, alerts={alerts}")
 
-        # Public normal alerts in alert mqtt topic (only battery_low or overheat)
         for alert in alerts:
             if alert["type"] in ("battery_low", "overheat"):
                 try:
@@ -125,20 +121,6 @@ def on_message(client, userdata, msg):
                     logger.info(f"Publicado en topic {MQTT_PUBLISH_TOPIC_ALERTS}: {alert}")
                 except Exception as e:
                     logger.error(f"Error publicando alerta MQTT: {e}")
-
-        # BUG: Este segundo batch_writer.add es redundante. El normal_record
-        # ya fue enviado en el bloque anterior junto con las alertas.
-        # Además, la conversión de datetime a isoformat() debería hacerse
-        # antes del primer add, no aquí.
-        
-        # Only save normal reading if exists and is valid
-        if normal_record:
-            if isinstance(normal_record.get("time"), datetime.datetime):
-                normal_record["time"] = normal_record["time"].isoformat()
-
-            batch_writer.add({"normal_record": normal_record, "alerts": []})
-            logger.info(f"Enviado a READINGS: {normal_record}")
-
     except Exception as e:
         logger.error(f"Error procesando mensaje MQTT: {e}")
 
