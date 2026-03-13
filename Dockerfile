@@ -18,6 +18,4 @@ ENV PYTHONPATH=/app
 
 EXPOSE 3000
 
-RUN pytest
-
 CMD ["bentoml", "serve", "api.service:MQTTService", "--host", "0.0.0.0", "--port", "3000"]
