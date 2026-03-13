@@ -79,11 +79,28 @@ services:
     deploy:
       resources:
         limits:
-          # TODO: 4 CPUs y 4096MB es excesivo para un gateway HTTP que solo
-          # hace routing de mensajes. En producción reducir a cpus: "1" y
-          # memory: 512M para no consumir recursos innecesarios del servidor.
-          cpus: "4"
-          memory: 4096M
+          cpus: "1"
+          memory: 512M
+
+  benthos_tests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bento_tests
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: pytest
+    networks:
+      - backend
+    tty: true 
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
 
 
 networks:
