@@ -38,11 +38,8 @@ output:
             verb: POST
             headers:
               Content-Type: application/json
-              # BUG: Falta el header de autorización hacia PocketBase.
-              # Las peticiones se envían sin token, lo que solo funciona si
-              # la colección tiene reglas de acceso público.
-              # En producción esto es un riesgo de seguridad.
-              # Solución: añadir Authorization: "Bearer ${POCKETBASE_TOKEN}"
+              Authorization: "Bearer ${POCKETBASE_TOKEN}"
+              # [SOLVED] the start.bat file run at the startup the 'obtener_token.py' script, it write a 'token.env' file and this will be the {POCKETBASE_TOKEN} (It is the superuser token)
 
       - check: meta("collection") == "urgent_alerts"
         output:
@@ -51,7 +48,8 @@ output:
             verb: POST
             headers:
               Content-Type: application/json
-              # BUG: Mismo problema que en readings. Sin Authorization header.
+              Authorization: "Bearer ${POCKETBASE_TOKEN}"
+              # [SOLVED] Added authorization
       - output:
           stdout:
             codec: lines
