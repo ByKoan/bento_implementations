@@ -91,7 +91,7 @@ services:
       mqtt:
         condition: service_healthy
     volumes:
-      - .:/app
+      - ./tests:/app/tests:rw
     command: pytest
     networks:
       - backend
