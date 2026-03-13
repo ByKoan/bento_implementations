@@ -71,6 +71,7 @@ services:
     command: -c /benthos.yaml
     env_file:
       - .env
+      - token.env # Adding POCKETBASE_TOKEN to environment variables
     ports:
       - "4197:4197"
     networks:
