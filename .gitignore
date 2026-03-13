@@ -2,3 +2,6 @@
 /tests/bento-test.*
 /scripts/start.bat
 /.obsidian
+token.env
+.pytest_cache/
+*/__pycache__
