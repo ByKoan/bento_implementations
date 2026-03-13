@@ -2,3 +2,4 @@
 /tests/bento-test.*
 /scripts/start.bat
 /.obsidian
+.env
