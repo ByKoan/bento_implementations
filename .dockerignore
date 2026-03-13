@@ -1,0 +1,29 @@
+# Archivos del sistema y temporales
+**/__pycache__/
+__pycache__/
+.git/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.swo
+*.DS_Store
+
+# Carpeta de datos, logs, y outputs locales
+data/
+
+# Entorno virtual local 
+.env
+scripts/token.env
+
+# Configuraciones de IDE
+.vscode/
+.idea/
+*.iml
+
+# Archivos de test / cache
+.pytest_cache/
+
+# Archivos de go temporales
+/scripts/go.mod
+/scripts/go.sum
